@@ -1,0 +1,134 @@
+import type { ThemeConfig } from 'antd';
+
+/**
+ * Ant Design ConfigProvider theme — maps DESIGN.md tokens to antd v5 theme API.
+ */
+export const antdTheme: ThemeConfig = {
+  token: {
+    colorPrimary: '#1677FF',
+    colorBgLayout: '#FAFAFA',
+    colorText: '#1F1F1F',
+    colorTextSecondary: '#8C8C8C',
+    colorTextTertiary: '#BFBFBF',
+    colorBorder: '#F0F0F0',
+    colorBorderSecondary: '#D9D9D9',
+    colorSuccess: '#52C41A',
+    colorWarning: '#FAAD14',
+    colorError: '#FF4D4F',
+    colorInfo: '#1677FF',
+    borderRadius: 8,
+    fontFamily:
+      "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+    fontSize: 14,
+    controlHeight: 36,
+    boxShadow:
+      '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+  },
+};
+
+/**
+ * CSS custom properties injected into :root.
+ * Consumed by custom components that live outside antd.
+ */
+export const cssVariables = `
+:root {
+  /* ── Colors ── */
+  --color-primary: #1677FF;
+  --color-primary-hover: #4096FF;
+  --color-primary-active: #0958D9;
+  --color-primary-bg: #E6F4FF;
+  --color-primary-05: rgba(22, 119, 255, 0.05);
+  --color-primary-10: rgba(22, 119, 255, 0.10);
+  --color-primary-20: rgba(22, 119, 255, 0.20);
+  --color-bg: #FAFAFA;
+  --color-bg-elevated: #F5F5F5;
+  --color-surface: #FFFFFF;
+  --color-text: #1F1F1F;
+  --color-text-secondary: #8C8C8C;
+  --color-text-tertiary: #BFBFBF;
+  --color-border: #F0F0F0;
+  --color-border-strong: #D9D9D9;
+  --color-success: #52C41A;
+  --color-warning: #FAAD14;
+  --color-error: #FF4D4F;
+
+  /* ── Typography ── */
+  --font-display: 'Outfit', sans-serif;
+  --font-serif: 'Noto Serif SC', 'Source Han Serif SC', serif;
+  --font-system: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-code: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+
+  /* ── Font Sizes ── */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-base: 0.875rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+
+  /* ── Spacing (8px base) ── */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  /* ── Border Radius ── */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ── */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -2px rgba(0,0,0,0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
+  --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.08), 0 8px 10px -6px rgba(0,0,0,0.04);
+  --shadow-glow: 0 0 0 1px var(--color-primary-10), 0 4px 16px var(--color-primary-10);
+
+  /* ── Motion ── */
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+
+  /* ── Layout ── */
+  --nav-height: 56px;
+  --content-max-width: 1440px;
+}
+
+[data-theme="dark"] {
+  --color-primary: #3B8BFF;
+  --color-primary-hover: #5CA0FF;
+  --color-primary-active: #1A6FE8;
+  --color-primary-bg: #111A2C;
+  --color-primary-05: rgba(59, 139, 255, 0.06);
+  --color-primary-10: rgba(59, 139, 255, 0.12);
+  --color-primary-20: rgba(59, 139, 255, 0.22);
+  --color-bg: #0A0A0B;
+  --color-bg-elevated: #141415;
+  --color-surface: #1A1A1C;
+  --color-text: #E8E8EA;
+  --color-text-secondary: #8C8C90;
+  --color-text-tertiary: #4A4A4E;
+  --color-border: #2A2A2E;
+  --color-border-strong: #3A3A3E;
+  --color-success: #49AA19;
+  --color-warning: #D89614;
+  --color-error: #DC4446;
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.3);
+  --shadow-lg: 0 10px 20px rgba(0,0,0,0.35);
+  --shadow-xl: 0 20px 40px rgba(0,0,0,0.4);
+  --shadow-glow: 0 0 0 1px var(--color-primary-10), 0 4px 20px var(--color-primary-10);
+}
+`;

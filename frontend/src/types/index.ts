@@ -1,0 +1,78 @@
+// ── Document ──
+
+export type DocumentStatus = '上传成功' | '解析中' | '可用' | '解析失败';
+
+export interface Document {
+  id: string;
+  file_name: string;
+  file_ext: string;
+  file_size: number;
+  status: DocumentStatus;
+  error_message?: string;
+  uploaded_at: string;
+  updated_at: string;
+}
+
+// ── Chat ──
+
+export type ScopeType = 'all' | 'single';
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  scope_type: ScopeType;
+  document_id?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MessageRole = 'user' | 'assistant';
+
+export interface ChatMessage {
+  id: string;
+  session_id: string;
+  role: MessageRole;
+  content: string;
+  created_at: string;
+}
+
+// ── Provider ──
+
+export type ProviderType = 'openai' | 'claude' | 'openai_compatible';
+
+export interface ProviderConfig {
+  id: string;
+  provider_type: ProviderType;
+  base_url: string;
+  model_name: string;
+  api_key: string; // masked from server
+  temperature: number;
+  max_tokens: number;
+  timeout_seconds: number;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── SSE ──
+
+export interface SSETokenEvent {
+  type: 'token';
+  content: string;
+}
+
+export interface SSEDoneEvent {
+  type: 'done';
+  message_id: string;
+}
+
+export type SSEEvent = SSETokenEvent | SSEDoneEvent;
+
+// ── API ──
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
