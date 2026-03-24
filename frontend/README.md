@@ -19,7 +19,8 @@
 
 - 文档管理：列表、搜索、上传、删除
 - 系统设置：供应商创建、编辑、测试连接、设为默认、删除
-- 智能问答：会话创建、消息历史、SSE 流式回答
+- Provider 高级配置：支持单独配置 `embedding_model`、`enable_embedding`，编辑时会回显真实 `api_key`，但默认隐藏显示
+- 智能问答：会话创建、消息历史、SSE 流式回答、重新生成、来源展示
 - 前后端联调：开发模式默认通过 Vite 代理访问后端
 
 ## 启动
@@ -85,7 +86,10 @@ VITE_API_BASE_URL=http://localhost:8000/api
 ### 供应商服务
 
 - `src/services/providers.ts`
-- 已接入真实 CRUD、测试连接、设为默认接口
+- 已接入真实 CRUD、详情、测试连接、设为默认接口
+- Provider 表单同时支持聊天模型和 embedding 模型分开配置
+- `openai` / `claude` 的 `api_key` 必填；`openai_compatible` 连接本地模型时可留空
+- `claude` 的 embedding 开关会自动禁用
 
 ### 聊天服务
 
@@ -93,14 +97,22 @@ VITE_API_BASE_URL=http://localhost:8000/api
 - `sendMessage(sessionId, content, callbacks)` 签名保持不变
 - SSE 由 `src/services/api.ts` 里的 `sseStream()` 负责
 - 因为 Axios 不支持 `ReadableStream`，这里改用原生 `fetch`
+- 新建会话时可选择 provider，并把该 provider 绑定到会话
+- 单文档范围支持选择多个文档；头部默认只显示第一个文件名摘要，点击后可查看完整列表
 
 SSE 事件约定：
 
 ```text
+data: {"type":"sources","retrieval_method":"vector","chunks":[...]}
 data: {"type":"token","content":"..."}
 data: {"type":"done","message_id":"..."}
 data: {"type":"error","content":"..."}
 ```
+
+说明：
+- `sources` 会先于 token 到达，用于展示本次回答参考了哪些文档片段
+- assistant 消息的来源会跟消息一起持久化，刷新后仍可查看历史来源
+- 重新生成会显式告诉模型“用户对上一条回答不满意”，而不是单纯随机重试
 
 ## 目录结构
 
@@ -129,8 +141,8 @@ src/
 ## 页面说明
 
 - `Documents`：文档上传、列表、搜索、删除
-- `Chat`：会话管理、文档范围选择、流式对话
-- `Settings`：供应商管理和连接测试
+- `Chat`：会话管理、provider 选择、多文档范围选择、流式对话、来源查看、重新生成
+- `Settings`：供应商管理、连接测试、聊天模型 / Embedding 模型分开配置
 
 ## 设计
 

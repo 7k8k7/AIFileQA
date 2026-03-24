@@ -61,10 +61,10 @@ async def create_session(db: AsyncSession, data: SessionCreate) -> ChatSession:
                 )
             )
         ).scalars().all()
-        valid_ids = list(rows)
-        if len(valid_ids) != len(set(document_ids)):
+        valid_id_set = set(rows)
+        if len(valid_id_set) != len(set(document_ids)):
             raise ValueError("存在不可用或不存在的文档")
-        document_ids = valid_ids
+        document_ids = [doc_id for doc_id in document_ids if doc_id in valid_id_set]
     else:
         document_ids = []
 

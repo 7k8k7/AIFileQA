@@ -11,6 +11,7 @@ from app.schemas.provider import (
     ProviderOut,
     ProviderDetailOut,
     mask_api_key,
+    validate_provider_values,
 )
 from app.services.provider_url import build_provider_url, normalize_provider_base_url
 
@@ -52,6 +53,8 @@ async def create_provider(db: AsyncSession, data: ProviderCreate) -> ProviderCon
         base_url=normalize_provider_base_url(data.base_url),
         model_name=data.model_name,
         api_key=data.api_key,
+        embedding_model=data.embedding_model.strip(),
+        enable_embedding=data.enable_embedding,
         temperature=data.temperature,
         max_tokens=data.max_tokens,
         timeout_seconds=data.timeout_seconds,
@@ -76,9 +79,22 @@ async def update_provider(
         return None
 
     update_data = data.model_dump(exclude_unset=True)
+    merged_provider_type = update_data.get("provider_type", provider.provider_type)
+    merged_api_key = update_data.get("api_key", provider.api_key)
+    merged_enable_embedding = update_data.get("enable_embedding", provider.enable_embedding)
+    merged_embedding_model = update_data.get("embedding_model", provider.embedding_model)
+    validate_provider_values(
+        provider_type=merged_provider_type,
+        api_key=merged_api_key,
+        enable_embedding=merged_enable_embedding,
+        embedding_model=merged_embedding_model,
+    )
+
     for key, value in update_data.items():
         if key == "base_url" and value is not None:
             value = normalize_provider_base_url(value)
+        if key == "embedding_model" and value is not None:
+            value = value.strip()
         setattr(provider, key, value)
 
     await db.flush()

@@ -23,6 +23,8 @@ class ProviderConfig(Base):
     base_url: Mapped[str] = mapped_column(String(512), nullable=False)
     model_name: Mapped[str] = mapped_column(String(128), nullable=False)
     api_key: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    embedding_model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    enable_embedding: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.7)
     max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=4096)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=30)

@@ -10,6 +10,7 @@ import {
   Skeleton,
   Tooltip,
   Spin,
+  Switch,
 } from 'antd';
 import {
   PlusOutlined,
@@ -62,16 +63,42 @@ interface ProviderFormValues {
   base_url: string;
   model_name: string;
   api_key: string;
+  embedding_model: string;
+  enable_embedding: boolean;
   temperature: number;
   max_tokens: number;
   timeout_seconds: number;
 }
 
+function getProviderDefaults(providerType: ProviderType): Pick<ProviderFormValues, 'base_url' | 'enable_embedding' | 'embedding_model'> {
+  if (providerType === 'openai') {
+    return {
+      base_url: 'https://api.openai.com',
+      enable_embedding: true,
+      embedding_model: 'text-embedding-3-small',
+    };
+  }
+  if (providerType === 'claude') {
+    return {
+      base_url: 'https://api.anthropic.com',
+      enable_embedding: false,
+      embedding_model: '',
+    };
+  }
+  return {
+    base_url: '',
+    enable_embedding: false,
+    embedding_model: '',
+  };
+}
+
 const DEFAULT_PROVIDER_VALUES: ProviderFormValues = {
   provider_type: 'openai',
-  base_url: 'https://api.openai.com',
+  base_url: getProviderDefaults('openai').base_url,
   model_name: 'gpt-4o',
   api_key: '',
+  embedding_model: getProviderDefaults('openai').embedding_model,
+  enable_embedding: getProviderDefaults('openai').enable_embedding,
   temperature: 0.7,
   max_tokens: 4096,
   timeout_seconds: 30,
@@ -90,12 +117,7 @@ function ProviderForm({
 }) {
   const [form] = Form.useForm<ProviderFormValues>();
   const providerType = Form.useWatch('provider_type', form) ?? initial?.provider_type ?? 'openai';
-
-  const defaultUrls: Record<ProviderType, string> = {
-    openai: 'https://api.openai.com',
-    claude: 'https://api.anthropic.com',
-    openai_compatible: '',
-  };
+  const enableEmbedding = Form.useWatch('enable_embedding', form) ?? initial?.enable_embedding ?? false;
 
   useEffect(() => {
     form.resetFields();
@@ -106,6 +128,8 @@ function ProviderForm({
             base_url: initial.base_url,
             model_name: initial.model_name,
             api_key: initial.api_key,
+            embedding_model: initial.embedding_model,
+            enable_embedding: initial.enable_embedding,
             temperature: initial.temperature,
             max_tokens: initial.max_tokens,
             timeout_seconds: initial.timeout_seconds,
@@ -135,7 +159,12 @@ function ProviderForm({
                 label: t.label,
               }))}
               onChange={(val: ProviderType) => {
-                form.setFieldsValue({ base_url: defaultUrls[val] });
+                const defaults = getProviderDefaults(val);
+                form.setFieldsValue({
+                  base_url: defaults.base_url,
+                  enable_embedding: defaults.enable_embedding,
+                  embedding_model: defaults.embedding_model,
+                });
               }}
             />
           </Form.Item>
@@ -184,6 +213,55 @@ function ProviderForm({
             visibilityToggle
           />
         </Form.Item>
+
+        <div className={styles.formGrid}>
+          <Form.Item
+            name="enable_embedding"
+            label="启用 Embedding"
+            valuePropName="checked"
+            extra={
+              providerType === 'claude'
+                ? 'Claude 当前不支持 Embedding，会自动退回关键词检索。'
+                : '启用后会优先按当前会话绑定的供应商生成或复用该供应商的向量。'
+            }
+          >
+            <Switch
+              checkedChildren="开启"
+              unCheckedChildren="关闭"
+              disabled={providerType === 'claude'}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="embedding_model"
+            label="Embedding Model"
+            rules={[
+              {
+                validator: async (_, value: string | undefined) => {
+                  if (providerType !== 'claude' && enableEmbedding && !value?.trim()) {
+                    throw new Error('启用 Embedding 时必须填写 Embedding Model');
+                  }
+                },
+              },
+            ]}
+            extra={
+              providerType === 'openai_compatible'
+                ? '本地兼容服务若支持 /v1/embeddings，请填写实际可用的 embedding 模型名。'
+                : '聊天模型和 Embedding 模型建议分开配置。'
+            }
+          >
+            <Input
+              placeholder={
+                providerType === 'openai'
+                  ? 'text-embedding-3-small'
+                  : providerType === 'openai_compatible'
+                    ? '例如 bge-m3 / nomic-embed-text'
+                    : 'Claude 不支持'
+              }
+              disabled={providerType === 'claude' || !enableEmbedding}
+            />
+          </Form.Item>
+        </div>
 
         <div className={styles.formGrid3}>
           <Form.Item
@@ -334,6 +412,9 @@ function ProviderCard({
         </span>
         <span className={styles.detailItem}>
           Key: {maskApiKey(provider.api_key)}
+        </span>
+        <span className={styles.detailItem}>
+          Embedding: {provider.enable_embedding ? provider.embedding_model : '已关闭'}
         </span>
         <span className={styles.detailItem}>
           T={provider.temperature} · {provider.max_tokens} tokens · {provider.timeout_seconds}s

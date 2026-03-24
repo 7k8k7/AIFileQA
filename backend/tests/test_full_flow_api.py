@@ -221,6 +221,112 @@ def test_chat_uses_selected_session_provider(
         assert '"type":"done"' in body or '"type": "done"' in body
 
 
+def test_chat_retrieval_prefers_selected_session_provider_embeddings(
+    app_ctx: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    embedding_provider_ids: list[str] = []
+
+    async def fake_trigger_parse(doc_id: str, _file_path: str, _file_ext: str) -> None:
+        async with app_ctx.database.async_session() as db:
+            doc = (await db.execute(
+                select(app_ctx.document_models.Document).where(
+                    app_ctx.document_models.Document.id == doc_id
+                )
+            )).scalar_one()
+
+            db.add(app_ctx.document_models.DocumentChunk(
+                document_id=doc_id,
+                chunk_index=0,
+                content="provider specific embedded content",
+                page_no=1,
+                embedding=None,
+            ))
+            doc.status = "可用"
+            doc.error_message = None
+            await db.commit()
+
+    async def fake_generate_embeddings(provider, texts):
+        embedding_provider_ids.extend([provider.id] * len(texts))
+        return [None] * len(texts)
+
+    async def fake_stream_chat_completion(_provider, _messages, _user_content, system_prompt=None):
+        yield 'data: {"type":"token","content":"ok"}\n\n'
+
+    monkeypatch.setattr(app_ctx.documents_api, "trigger_parse", fake_trigger_parse)
+    monkeypatch.setattr(app_ctx.chat_api, "stream_chat_completion", fake_stream_chat_completion)
+    monkeypatch.setattr(
+        sys.modules["app.services.retrieval_service"],
+        "generate_embeddings",
+        fake_generate_embeddings,
+    )
+
+    with TestClient(app_ctx.main.app) as client:
+        default_provider = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai",
+                "base_url": "https://api.openai.com",
+                "model_name": "gpt-default",
+                "api_key": "test-key-1",
+                "embedding_model": "text-embedding-3-small",
+                "enable_embedding": True,
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "is_default": False,
+            },
+        )
+        assert default_provider.status_code == 201
+
+        selected_provider = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai_compatible",
+                "base_url": "http://localhost:11434",
+                "model_name": "llama3.1",
+                "api_key": "",
+                "embedding_model": "nomic-embed-text",
+                "enable_embedding": True,
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "is_default": False,
+            },
+        )
+        assert selected_provider.status_code == 201
+        selected_provider_id = selected_provider.json()["id"]
+
+        upload_resp = client.post(
+            "/api/documents",
+            files={"file": ("sample.txt", b"provider content", "text/plain")},
+        )
+        assert upload_resp.status_code == 201
+        doc_id = upload_resp.json()["id"]
+
+        session_resp = client.post(
+            "/api/sessions",
+            json={
+                "scope_type": "single",
+                "provider_id": selected_provider_id,
+                "document_id": doc_id,
+            },
+        )
+        assert session_resp.status_code == 201
+
+        with client.stream(
+            "POST",
+            f"/api/sessions/{session_resp.json()['id']}/messages",
+            json={"content": "请回答"},
+        ) as response:
+            assert response.status_code == 200
+            body = "".join(response.iter_text())
+
+        assert '"type":"error"' not in body
+        assert embedding_provider_ids
+        assert set(embedding_provider_ids) == {selected_provider_id}
+
+
 def test_provider_detail_returns_full_key_while_list_is_masked(
     app_ctx: SimpleNamespace,
 ):
@@ -232,6 +338,8 @@ def test_provider_detail_returns_full_key_while_list_is_masked(
                 "base_url": "https://api.openai.com",
                 "model_name": "gpt-4o",
                 "api_key": "sk-secret-12345678",
+                "embedding_model": "text-embedding-3-small",
+                "enable_embedding": True,
                 "temperature": 0.7,
                 "max_tokens": 512,
                 "timeout_seconds": 30,
@@ -248,6 +356,8 @@ def test_provider_detail_returns_full_key_while_list_is_masked(
         detail = client.get(f"/api/providers/{provider_id}")
         assert detail.status_code == 200
         assert detail.json()["api_key"] == "sk-secret-12345678"
+        assert detail.json()["embedding_model"] == "text-embedding-3-small"
+        assert detail.json()["enable_embedding"] is True
 
 
 def test_provider_api_key_required_except_openai_compatible(
@@ -276,6 +386,8 @@ def test_provider_api_key_required_except_openai_compatible(
                 "base_url": "http://localhost:11434",
                 "model_name": "llama3.1",
                 "api_key": "",
+                "embedding_model": "",
+                "enable_embedding": False,
                 "temperature": 0.7,
                 "max_tokens": 512,
                 "timeout_seconds": 30,
@@ -283,6 +395,23 @@ def test_provider_api_key_required_except_openai_compatible(
             },
         )
         assert compatible_resp.status_code == 201
+
+        invalid_embedding_resp = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai",
+                "base_url": "https://api.openai.com",
+                "model_name": "gpt-4o",
+                "api_key": "sk-test",
+                "embedding_model": "",
+                "enable_embedding": True,
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "is_default": False,
+            },
+        )
+        assert invalid_embedding_resp.status_code == 422
 
 
 def test_regenerate_last_assistant_message_updates_existing_reply(

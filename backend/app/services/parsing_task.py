@@ -13,7 +13,7 @@ from app.core.database import async_session
 from app.models.document import Document, DocumentChunk
 from app.models.provider import ProviderConfig
 from app.services.parser_service import parse_document
-from app.services.embedding_service import generate_embeddings, serialize_embedding
+from app.services.embedding_service import generate_embeddings, serialize_embedding, get_embedding_model
 from app.services.vector_store_service import (
     delete_document_chunks as delete_vector_chunks,
     upsert_document_chunks,
@@ -78,6 +78,8 @@ async def _run_parse(doc_id: str, file_path: str, file_ext: str) -> None:
     # 3. Try to generate embeddings (best-effort)
     raw: list[list[float] | None] = [None] * len(chunks)
     embeddings: list[str | None] = [None] * len(chunks)
+    embedding_model: str | None = None
+    provider: ProviderConfig | None = None
     try:
         async with async_session() as db:
             provider = (await db.execute(
@@ -85,6 +87,7 @@ async def _run_parse(doc_id: str, file_path: str, file_ext: str) -> None:
             )).scalar_one_or_none()
 
         if provider:
+            embedding_model = get_embedding_model(provider)
             texts = [c.content for c in chunks]
             raw = await generate_embeddings(provider, texts)
             embeddings = [serialize_embedding(e) for e in raw]
@@ -126,6 +129,8 @@ async def _run_parse(doc_id: str, file_path: str, file_ext: str) -> None:
                 VectorChunkRecord(
                     chunk_id=row.id,
                     document_id=doc_id,
+                    provider_id=provider.id,
+                    embedding_model=embedding_model,
                     chunk_index=row.chunk_index,
                     content=row.content,
                     embedding=raw_embedding,
@@ -133,7 +138,7 @@ async def _run_parse(doc_id: str, file_path: str, file_ext: str) -> None:
                     section_label=row.section_label,
                 )
                 for row, raw_embedding in zip(chunk_rows, raw)
-                if raw_embedding is not None
+                if provider and embedding_model and raw_embedding is not None
             ]
             if vector_records:
                 upsert_document_chunks(vector_records)

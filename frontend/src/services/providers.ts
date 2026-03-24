@@ -20,7 +20,7 @@ export async function createProvider(
 
 export async function updateProvider(
   id: string,
-  body: Partial<Pick<ProviderConfig, 'provider_type' | 'base_url' | 'model_name' | 'api_key' | 'temperature' | 'max_tokens' | 'timeout_seconds'>>,
+  body: Partial<Pick<ProviderConfig, 'provider_type' | 'base_url' | 'model_name' | 'api_key' | 'embedding_model' | 'enable_embedding' | 'temperature' | 'max_tokens' | 'timeout_seconds'>>,
 ): Promise<ProviderConfig> {
   const { data } = await api.put<ProviderConfig>(`/providers/${id}`, body);
   return data;

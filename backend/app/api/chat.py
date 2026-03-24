@@ -118,6 +118,7 @@ async def send_message(
     rag_result = await build_rag_prompt(
         db,
         body.content,
+        provider=provider,
         scope_type=session.scope_type,
         document_id=session.document_id,
         document_ids=json.loads(session.document_ids_json) if session.document_ids_json else None,
@@ -235,6 +236,7 @@ async def regenerate_message(
     rag_result = await build_rag_prompt(
         db,
         user_message.content,
+        provider=provider,
         scope_type=session.scope_type,
         document_id=session.document_id,
         document_ids=json.loads(session.document_ids_json) if session.document_ids_json else None,

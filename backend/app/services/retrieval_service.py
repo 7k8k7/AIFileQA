@@ -11,8 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document, DocumentChunk
 from app.models.provider import ProviderConfig
-from app.services.embedding_service import generate_embeddings
-from app.services.vector_store_service import query_document_chunks
+from app.services.embedding_service import (
+    can_use_embeddings,
+    generate_embeddings,
+    get_embedding_model,
+)
+from app.services.vector_store_service import (
+    find_missing_chunk_ids,
+    query_document_chunks,
+    upsert_document_chunks,
+    VectorChunkRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +52,7 @@ async def retrieve_chunks(
     db: AsyncSession,
     query: str,
     *,
+    provider: ProviderConfig | None = None,
     scope_type: str = "all",
     document_id: str | None = None,
     document_ids: list[str] | None = None,
@@ -60,12 +70,14 @@ async def retrieve_chunks(
 
     logger.info("RAG: %d candidate doc(s) for scope=%s", len(doc_ids), scope_type)
 
-    provider = (await db.execute(
-        select(ProviderConfig).where(ProviderConfig.is_default == True)  # noqa: E712
-    )).scalar_one_or_none()
+    if provider is None:
+        provider = (await db.execute(
+            select(ProviderConfig).where(ProviderConfig.is_default == True)  # noqa: E712
+        )).scalar_one_or_none()
 
-    if provider:
+    if provider and can_use_embeddings(provider):
         try:
+            await _ensure_provider_embeddings(db, provider, doc_ids)
             vector_rows = await _vector_retrieve(
                 db,
                 provider,
@@ -90,6 +102,7 @@ async def retrieve_chunk_hits(
     db: AsyncSession,
     query: str,
     *,
+    provider: ProviderConfig | None = None,
     scope_type: str = "all",
     document_id: str | None = None,
     document_ids: list[str] | None = None,
@@ -98,6 +111,7 @@ async def retrieve_chunk_hits(
     chunks, _ = await retrieve_chunks(
         db,
         query,
+        provider=provider,
         scope_type=scope_type,
         document_id=document_id,
         document_ids=document_ids,
@@ -110,6 +124,7 @@ async def build_rag_prompt(
     db: AsyncSession,
     query: str,
     *,
+    provider: ProviderConfig | None = None,
     scope_type: str = "all",
     document_id: str | None = None,
     document_ids: list[str] | None = None,
@@ -118,6 +133,7 @@ async def build_rag_prompt(
     chunks, method = await retrieve_chunks(
         db,
         query,
+        provider=provider,
         scope_type=scope_type,
         document_id=document_id,
         document_ids=document_ids,
@@ -158,12 +174,22 @@ async def _vector_retrieve(
     doc_ids: list[str],
     top_k: int,
 ) -> list[RetrievedChunk]:
+    embedding_model = get_embedding_model(provider)
+    if not embedding_model:
+        return []
+
     query_embs = await generate_embeddings(provider, [query])
     query_emb = query_embs[0] if query_embs else None
     if not query_emb:
         return []
 
-    hits = query_document_chunks(query_emb, top_k=top_k, document_ids=doc_ids)
+    hits = query_document_chunks(
+        query_emb,
+        top_k=top_k,
+        provider_id=provider.id,
+        embedding_model=embedding_model,
+        document_ids=doc_ids,
+    )
     if not hits:
         return []
 
@@ -192,6 +218,46 @@ async def _vector_retrieve(
             )
         )
     return results
+
+
+async def _ensure_provider_embeddings(
+    db: AsyncSession,
+    provider: ProviderConfig,
+    doc_ids: list[str],
+) -> None:
+    embedding_model = get_embedding_model(provider)
+    if not embedding_model or not doc_ids:
+        return
+
+    chunks = await _load_candidate_chunks(db, doc_ids)
+    if not chunks:
+        return
+
+    chunk_ids = [chunk.id for chunk in chunks]
+    missing_ids = set(find_missing_chunk_ids(provider.id, embedding_model, chunk_ids))
+    if not missing_ids:
+        return
+
+    missing_chunks = [chunk for chunk in chunks if chunk.id in missing_ids]
+    raw_embeddings = await generate_embeddings(provider, [chunk.content for chunk in missing_chunks])
+
+    records = [
+        VectorChunkRecord(
+            chunk_id=chunk.id,
+            document_id=chunk.document_id,
+            provider_id=provider.id,
+            embedding_model=embedding_model,
+            chunk_index=chunk.chunk_index,
+            content=chunk.content,
+            embedding=raw_embedding,
+            page_no=chunk.page_no,
+            section_label=chunk.section_label,
+        )
+        for chunk, raw_embedding in zip(missing_chunks, raw_embeddings)
+        if raw_embedding is not None
+    ]
+    if records:
+        upsert_document_chunks(records)
 
 
 async def _keyword_retrieve(

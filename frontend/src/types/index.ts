@@ -54,6 +54,8 @@ export interface ProviderConfig {
   base_url: string;
   model_name: string;
   api_key: string; // masked from server
+  embedding_model: string;
+  enable_embedding: boolean;
   temperature: number;
   max_tokens: number;
   timeout_seconds: number;

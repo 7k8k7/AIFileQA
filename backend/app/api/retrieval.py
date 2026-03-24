@@ -5,7 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.schemas.retrieval import RetrievalChunkOut, RetrievalQuery
-from app.services.retrieval_service import retrieve_chunks
+from app.services.retrieval_service import retrieve_chunk_hits
+from app.services.provider_service import get_provider
 
 router = APIRouter(prefix="/api/retrieval", tags=["retrieval"])
 
@@ -15,12 +16,19 @@ async def search_chunks(
     data: RetrievalQuery,
     db: AsyncSession = Depends(get_db),
 ):
-    if data.scope_type == "single" and not (data.document_ids or data.document_id):
-        raise HTTPException(status_code=400, detail="single 范围必须提供至少一个 document_id")
+    if data.scope_type == "single" and not (data.document_id or data.document_ids):
+        raise HTTPException(status_code=400, detail="single 范围必须提供 document_id")
 
-    rows, _ = await retrieve_chunks(
+    provider = None
+    if data.provider_id:
+        provider = await get_provider(db, data.provider_id)
+        if not provider:
+            raise HTTPException(status_code=404, detail="供应商不存在")
+
+    rows = await retrieve_chunk_hits(
         db,
         data.query,
+        provider=provider,
         scope_type=data.scope_type,
         document_id=data.document_id,
         document_ids=data.document_ids,

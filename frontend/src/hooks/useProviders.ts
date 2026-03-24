@@ -44,7 +44,7 @@ export function useUpdateProvider() {
       data,
     }: {
       id: string;
-      data: Partial<Pick<ProviderConfig, 'provider_type' | 'base_url' | 'model_name' | 'api_key' | 'temperature' | 'max_tokens' | 'timeout_seconds'>>;
+      data: Partial<Pick<ProviderConfig, 'provider_type' | 'base_url' | 'model_name' | 'api_key' | 'embedding_model' | 'enable_embedding' | 'temperature' | 'max_tokens' | 'timeout_seconds'>>;
     }) => updateProvider(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: PROVIDERS_KEY }),
   });

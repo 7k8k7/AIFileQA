@@ -1,6 +1,6 @@
 """Embedding service — call provider API to generate text embeddings.
 
-Uses the default provider's embedding endpoint.
+Uses the selected provider's embedding endpoint when available.
 For OpenAI / compatible: POST /v1/embeddings
 For Claude: falls back to keyword-based retrieval (no native embedding API).
 
@@ -20,6 +20,19 @@ from app.services.provider_url import build_provider_url, normalize_provider_bas
 logger = logging.getLogger(__name__)
 
 
+def get_embedding_model(provider: ProviderConfig) -> str | None:
+    model = (provider.embedding_model or "").strip()
+    if not provider.enable_embedding or not model:
+        return None
+    if provider.provider_type == "claude":
+        return None
+    return model
+
+
+def can_use_embeddings(provider: ProviderConfig) -> bool:
+    return get_embedding_model(provider) is not None
+
+
 async def generate_embeddings(
     provider: ProviderConfig,
     texts: list[str],
@@ -29,9 +42,12 @@ async def generate_embeddings(
     Returns a list of float vectors (or None for texts that failed).
     If the provider doesn't support embeddings (e.g. Claude), returns all None.
     """
-    if provider.provider_type == "claude":
-        # Anthropic has no embedding API — skip
-        logger.info("Claude provider has no embedding API, skipping vectorization")
+    embedding_model = get_embedding_model(provider)
+    if not embedding_model:
+        logger.info(
+            "Provider %s does not support or has disabled embedding, skipping vectorization",
+            provider.id,
+        )
         return [None] * len(texts)
 
     url = normalize_provider_base_url(provider.base_url)
@@ -50,7 +66,7 @@ async def generate_embeddings(
         try:
             async with httpx.AsyncClient(timeout=60) as client:
                 resp = await client.post(url, headers=headers, json={
-                    "model": _embedding_model(provider),
+                    "model": embedding_model,
                     "input": batch,
                 })
                 resp.raise_for_status()
@@ -83,10 +99,3 @@ def deserialize_embedding(data: str | None) -> list[float] | None:
         return None
     return json.loads(data)
 
-
-def _embedding_model(provider: ProviderConfig) -> str:
-    """Determine which embedding model to use based on provider type."""
-    if provider.provider_type == "openai":
-        return "text-embedding-3-small"
-    # For compatible providers, try a common default
-    return "text-embedding-3-small"
