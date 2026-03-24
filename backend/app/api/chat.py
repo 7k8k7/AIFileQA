@@ -20,17 +20,19 @@ from app.services.chat_service import (
 from app.services.llm_service import get_default_provider, stream_chat_completion
 from app.services.retrieval_service import build_rag_prompt
 
-router = APIRouter(prefix="/api/chat", tags=["chat"])
+router = APIRouter(tags=["chat"])
 
 
 # ── Sessions ──
 
-@router.get("/sessions", response_model=list[SessionOut])
+@router.get("/api/chat/sessions", response_model=list[SessionOut])
+@router.get("/api/sessions", response_model=list[SessionOut], include_in_schema=False)
 async def get_sessions(db: AsyncSession = Depends(get_db)):
     return [SessionOut.model_validate(s) for s in await list_sessions(db)]
 
 
-@router.post("/sessions", response_model=SessionOut, status_code=201)
+@router.post("/api/chat/sessions", response_model=SessionOut, status_code=201)
+@router.post("/api/sessions", response_model=SessionOut, status_code=201, include_in_schema=False)
 async def add_session(
     data: SessionCreate,
     db: AsyncSession = Depends(get_db),
@@ -39,7 +41,8 @@ async def add_session(
     return SessionOut.model_validate(session)
 
 
-@router.delete("/sessions/{session_id}", status_code=204)
+@router.delete("/api/chat/sessions/{session_id}", status_code=204)
+@router.delete("/api/sessions/{session_id}", status_code=204, include_in_schema=False)
 async def remove_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
@@ -51,7 +54,8 @@ async def remove_session(
 
 # ── Messages ──
 
-@router.get("/sessions/{session_id}/messages", response_model=list[MessageOut])
+@router.get("/api/chat/sessions/{session_id}/messages", response_model=list[MessageOut])
+@router.get("/api/sessions/{session_id}/messages", response_model=list[MessageOut], include_in_schema=False)
 async def get_messages(
     session_id: str,
     db: AsyncSession = Depends(get_db),
@@ -63,7 +67,8 @@ async def get_messages(
     return [MessageOut.model_validate(m) for m in msgs]
 
 
-@router.post("/sessions/{session_id}/messages")
+@router.post("/api/chat/sessions/{session_id}/messages")
+@router.post("/api/sessions/{session_id}/messages", include_in_schema=False)
 async def send_message(
     session_id: str,
     body: MessageSend,
@@ -130,8 +135,9 @@ async def send_message(
                 await persist_db.commit()
                 done_event = f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg.id}, ensure_ascii=False)}\n\n"
                 yield done_event
-            except Exception:
-                yield f"data: {json.dumps({'type': 'done', 'message_id': ''})}\n\n"
+            except Exception as e:
+                error_event = f"data: {json.dumps({'type': 'error', 'content': f'保存助手消息失败：{str(e)[:200]}'}, ensure_ascii=False)}\n\n"
+                yield error_event
 
     return StreamingResponse(
         event_generator(),

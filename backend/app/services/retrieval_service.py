@@ -212,6 +212,9 @@ async def _get_candidate_doc_ids(
     scope_type: str,
     document_id: str | None,
 ) -> list[str]:
+    if scope_type == "single" and not document_id:
+        return []
+
     if scope_type == "single" and document_id:
         doc = (await db.execute(
             select(Document).where(

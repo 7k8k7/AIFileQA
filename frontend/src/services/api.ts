@@ -1,7 +1,17 @@
 import axios from 'axios';
 
+function normalizeApiBaseUrl(raw?: string): string {
+  if (!raw) return '/api';
+
+  const trimmed = raw.replace(/\/+$/, '');
+  if (trimmed === '/api' || trimmed.endsWith('/api')) {
+    return trimmed;
+  }
+  return `${trimmed}/api`;
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api',
+  baseURL: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL as string | undefined),
   timeout: 30_000,
   headers: { 'Content-Type': 'application/json' },
 });
@@ -21,7 +31,7 @@ export function sseStream(
     onError: (error: Error) => void;
   },
 ): () => void {
-  const baseURL = (import.meta.env.VITE_API_BASE_URL as string) ?? '/api';
+  const baseURL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL as string | undefined);
   const controller = new AbortController();
 
   fetch(`${baseURL}${path}`, {

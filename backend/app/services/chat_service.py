@@ -1,10 +1,16 @@
 """Chat session / message CRUD service."""
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat import ChatSession, ChatMessage
 from app.schemas.chat import SessionCreate
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 async def list_sessions(db: AsyncSession) -> list[ChatSession]:
@@ -60,8 +66,10 @@ async def save_user_message(db: AsyncSession, session_id: str, content: str) -> 
 
     # Update title from first user message
     session = await get_session(db, session_id)
-    if session and session.title == "新对话":
-        session.title = content[:50]
+    if session:
+        if session.title == "新对话":
+            session.title = content[:50]
+        session.updated_at = _utcnow()
 
     await db.flush()
     await db.refresh(msg)
@@ -72,6 +80,11 @@ async def save_assistant_message(db: AsyncSession, session_id: str, content: str
     """Persist the completed assistant response."""
     msg = ChatMessage(session_id=session_id, role="assistant", content=content)
     db.add(msg)
+
+    session = await get_session(db, session_id)
+    if session:
+        session.updated_at = _utcnow()
+
     await db.flush()
     await db.refresh(msg)
     return msg
