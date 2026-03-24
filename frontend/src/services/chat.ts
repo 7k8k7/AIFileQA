@@ -11,7 +11,9 @@ export async function fetchSessions(): Promise<ChatSession[]> {
 
 export async function createSession(params: {
   scope_type: ScopeType;
+  provider_id?: string;
   document_id?: string;
+  document_ids?: string[];
 }): Promise<ChatSession> {
   const { data } = await api.post<ChatSession>('/chat/sessions', params);
   return data;
@@ -39,12 +41,31 @@ export function sendMessage(
     onToken: (token: string) => void;
     onDone: (messageId: string) => void;
     onError: (error: Error) => void;
+    onAccepted?: (data: { userMessageId?: string }) => void;
     onSources?: (data: { retrieval_method: string; chunks: SourceChunk[] }) => void;
   },
 ): () => void {
   return sseStream(
     `/chat/sessions/${sessionId}/messages`,
     { content },
+    callbacks,
+  );
+}
+
+export function regenerateMessage(
+  sessionId: string,
+  messageId: string,
+  callbacks: {
+    onToken: (token: string) => void;
+    onDone: (messageId: string) => void;
+    onError: (error: Error) => void;
+    onAccepted?: (data: { userMessageId?: string }) => void;
+    onSources?: (data: { retrieval_method: string; chunks: SourceChunk[] }) => void;
+  },
+): () => void {
+  return sseStream(
+    `/chat/sessions/${sessionId}/messages/${messageId}/regenerate`,
+    {},
     callbacks,
   );
 }

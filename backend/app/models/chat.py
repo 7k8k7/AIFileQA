@@ -21,9 +21,13 @@ class ChatSession(Base):
     scope_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default="all"
     )  # all | single
+    provider_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("provider_configs.id", ondelete="SET NULL"), nullable=True
+    )
     document_id: Mapped[str | None] = mapped_column(
         String(32), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )
+    document_ids_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow

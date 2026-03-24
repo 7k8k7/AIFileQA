@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
+  fetchProvider,
   fetchProviders,
   createProvider,
   updateProvider,
@@ -15,6 +16,14 @@ export function useProviders() {
   return useQuery({
     queryKey: PROVIDERS_KEY,
     queryFn: fetchProviders,
+  });
+}
+
+export function useProvider(providerId: string | null) {
+  return useQuery({
+    queryKey: [...PROVIDERS_KEY, providerId],
+    queryFn: () => fetchProvider(providerId!),
+    enabled: !!providerId,
   });
 }
 

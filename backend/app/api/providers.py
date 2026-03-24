@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.provider import ProviderCreate, ProviderUpdate, ProviderOut
+from app.schemas.provider import ProviderCreate, ProviderUpdate, ProviderOut, ProviderDetailOut
 from app.services.provider_service import (
     list_providers,
-    get_provider,
+    get_provider_detail,
     create_provider,
     update_provider,
     set_default_provider,
@@ -21,6 +21,17 @@ router = APIRouter(prefix="/api/providers", tags=["providers"])
 @router.get("", response_model=list[ProviderOut])
 async def get_providers(db: AsyncSession = Depends(get_db)):
     return await list_providers(db)
+
+
+@router.get("/{provider_id}", response_model=ProviderDetailOut)
+async def get_provider_by_id(
+    provider_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    provider = await get_provider_detail(db, provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="供应商不存在")
+    return provider
 
 
 @router.post("", response_model=ProviderOut, status_code=201)

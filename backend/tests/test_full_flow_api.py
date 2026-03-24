@@ -118,6 +118,7 @@ def test_full_flow_upload_parse_chat_sse(
         session = session_resp.json()
         session_id = session["id"]
         created_at = session["created_at"]
+        assert session["provider_id"] == provider_resp.json()["id"]
 
         legacy_sessions = client.get("/api/chat/sessions")
         assert legacy_sessions.status_code == 200
@@ -155,3 +156,289 @@ def test_full_flow_upload_parse_chat_sse(
         assert sessions_resp.status_code == 200
         updated_session = next(item for item in sessions_resp.json() if item["id"] == session_id)
         assert updated_session["updated_at"] != created_at
+
+
+def test_chat_uses_selected_session_provider(
+    app_ctx: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    selected_provider_id: str | None = None
+
+    async def fake_stream_chat_completion(provider, _messages, _user_content, system_prompt=None):
+        assert provider.id == selected_provider_id
+        yield 'data: {"type":"token","content":"ok"}\n\n'
+
+    monkeypatch.setattr(app_ctx.chat_api, "stream_chat_completion", fake_stream_chat_completion)
+
+    with TestClient(app_ctx.main.app) as client:
+        default_provider = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai",
+                "base_url": "https://api.openai.com",
+                "model_name": "gpt-default",
+                "api_key": "test-key-1",
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "is_default": False,
+            },
+        )
+        assert default_provider.status_code == 201
+
+        secondary_provider = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai",
+                "base_url": "https://api.openai.com",
+                "model_name": "gpt-selected",
+                "api_key": "test-key-2",
+                "temperature": 0.5,
+                "max_tokens": 256,
+                "timeout_seconds": 20,
+                "is_default": False,
+            },
+        )
+        assert secondary_provider.status_code == 201
+        selected_provider_id = secondary_provider.json()["id"]
+
+        session_resp = client.post(
+            "/api/sessions",
+            json={"scope_type": "all", "provider_id": selected_provider_id},
+        )
+        assert session_resp.status_code == 201
+        assert session_resp.json()["provider_id"] == selected_provider_id
+
+        with client.stream(
+            "POST",
+            f"/api/sessions/{session_resp.json()['id']}/messages",
+            json={"content": "hello"},
+        ) as response:
+            assert response.status_code == 200
+            body = "".join(response.iter_text())
+
+        assert '"type":"error"' not in body
+        assert '"type":"done"' in body or '"type": "done"' in body
+
+
+def test_provider_detail_returns_full_key_while_list_is_masked(
+    app_ctx: SimpleNamespace,
+):
+    with TestClient(app_ctx.main.app) as client:
+        created = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai",
+                "base_url": "https://api.openai.com",
+                "model_name": "gpt-4o",
+                "api_key": "sk-secret-12345678",
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "is_default": False,
+            },
+        )
+        assert created.status_code == 201
+        provider_id = created.json()["id"]
+
+        listed = client.get("/api/providers")
+        assert listed.status_code == 200
+        assert listed.json()[0]["api_key"] != "sk-secret-12345678"
+
+        detail = client.get(f"/api/providers/{provider_id}")
+        assert detail.status_code == 200
+        assert detail.json()["api_key"] == "sk-secret-12345678"
+
+
+def test_provider_api_key_required_except_openai_compatible(
+    app_ctx: SimpleNamespace,
+):
+    with TestClient(app_ctx.main.app) as client:
+        openai_resp = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai",
+                "base_url": "https://api.openai.com",
+                "model_name": "gpt-4o",
+                "api_key": "",
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "is_default": False,
+            },
+        )
+        assert openai_resp.status_code == 422
+
+        compatible_resp = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai_compatible",
+                "base_url": "http://localhost:11434",
+                "model_name": "llama3.1",
+                "api_key": "",
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "is_default": False,
+            },
+        )
+        assert compatible_resp.status_code == 201
+
+
+def test_regenerate_last_assistant_message_updates_existing_reply(
+    app_ctx: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mode = "initial"
+
+    async def fake_stream_chat_completion(_provider, _messages, _user_content, system_prompt=None):
+        nonlocal mode
+        if mode == "initial":
+            yield 'data: {"type":"token","content":"旧答案"}\n\n'
+            return
+
+        assert system_prompt is not None
+        assert "不满意" in system_prompt
+        assert "旧答案" in system_prompt
+        yield 'data: {"type":"token","content":"新答案"}\n\n'
+
+    monkeypatch.setattr(app_ctx.chat_api, "stream_chat_completion", fake_stream_chat_completion)
+
+    with TestClient(app_ctx.main.app) as client:
+        provider_resp = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai",
+                "base_url": "https://api.openai.com",
+                "model_name": "gpt-4o-mini",
+                "api_key": "test-key",
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "is_default": False,
+            },
+        )
+        assert provider_resp.status_code == 201
+
+        session_resp = client.post("/api/sessions", json={"scope_type": "all"})
+        assert session_resp.status_code == 201
+        session_id = session_resp.json()["id"]
+
+        with client.stream(
+            "POST",
+            f"/api/sessions/{session_id}/messages",
+            json={"content": "请回答"},
+        ) as response:
+            assert response.status_code == 200
+            _ = "".join(response.iter_text())
+
+        messages_resp = client.get(f"/api/sessions/{session_id}/messages")
+        assert messages_resp.status_code == 200
+        original_messages = messages_resp.json()
+        assistant_id = original_messages[-1]["id"]
+        assert original_messages[-1]["content"] == "旧答案"
+
+        mode = "regen"
+        with client.stream(
+            "POST",
+            f"/api/sessions/{session_id}/messages/{assistant_id}/regenerate",
+            json={},
+        ) as response:
+            assert response.status_code == 200
+            body = "".join(response.iter_text())
+
+        assert '"type":"error"' not in body
+        assert '"type":"done"' in body or '"type": "done"' in body
+
+        updated_messages_resp = client.get(f"/api/sessions/{session_id}/messages")
+        assert updated_messages_resp.status_code == 200
+        updated_messages = updated_messages_resp.json()
+        assert len(updated_messages) == 2
+        assert updated_messages[-1]["id"] == assistant_id
+        assert updated_messages[-1]["content"] == "新答案"
+
+
+def test_single_scope_supports_multiple_documents(
+    app_ctx: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    created_docs: list[str] = []
+
+    async def fake_trigger_parse(doc_id: str, _file_path: str, _file_ext: str) -> None:
+        async with app_ctx.database.async_session() as db:
+            doc = (await db.execute(
+                select(app_ctx.document_models.Document).where(
+                    app_ctx.document_models.Document.id == doc_id
+                )
+            )).scalar_one()
+
+            db.add(app_ctx.document_models.DocumentChunk(
+                document_id=doc_id,
+                chunk_index=0,
+                content=f"{doc.file_name.replace('.txt', '')} unique content",
+                page_no=1,
+                embedding=None,
+            ))
+            doc.status = "可用"
+            doc.error_message = None
+            await db.commit()
+
+    async def fake_generate_embeddings(_provider, _texts):
+        return [None]
+
+    monkeypatch.setattr(app_ctx.documents_api, "trigger_parse", fake_trigger_parse)
+    monkeypatch.setattr(
+        sys.modules["app.services.retrieval_service"],
+        "generate_embeddings",
+        fake_generate_embeddings,
+    )
+
+    with TestClient(app_ctx.main.app) as client:
+        provider_resp = client.post(
+            "/api/providers",
+            json={
+                "provider_type": "openai",
+                "base_url": "https://api.openai.com",
+                "model_name": "gpt-4o-mini",
+                "api_key": "test-key",
+                "temperature": 0.7,
+                "max_tokens": 512,
+                "timeout_seconds": 30,
+                "is_default": False,
+            },
+        )
+        assert provider_resp.status_code == 201
+
+        for name in ("a.txt", "b.txt", "c.txt"):
+            upload_resp = client.post(
+                "/api/documents",
+                files={"file": (name, f"{name} body".encode(), "text/plain")},
+            )
+            assert upload_resp.status_code == 201
+            doc_id = upload_resp.json()["id"]
+            created_docs.append(doc_id)
+
+        session_resp = client.post(
+            "/api/sessions",
+            json={
+                "scope_type": "single",
+                "document_ids": created_docs[:2],
+            },
+        )
+        assert session_resp.status_code == 201
+        session = session_resp.json()
+        assert session["document_ids"] == created_docs[:2]
+        assert session["document_id"] == created_docs[0]
+
+        retrieval_resp = client.post(
+            "/api/retrieval/chunks",
+            json={
+                "query": "unique",
+                "scope_type": "single",
+                "document_ids": created_docs[:2],
+                "top_k": 10,
+            },
+        )
+        assert retrieval_resp.status_code == 200
+        returned_doc_ids = {item["document_id"] for item in retrieval_resp.json()}
+        assert returned_doc_ids == set(created_docs[:2])

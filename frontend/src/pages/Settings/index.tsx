@@ -25,6 +25,7 @@ import {
 } from '@ant-design/icons';
 import {
   useProviders,
+  useProvider,
   useCreateProvider,
   useUpdateProvider,
   useTestProvider,
@@ -66,6 +67,16 @@ interface ProviderFormValues {
   timeout_seconds: number;
 }
 
+const DEFAULT_PROVIDER_VALUES: ProviderFormValues = {
+  provider_type: 'openai',
+  base_url: 'https://api.openai.com',
+  model_name: 'gpt-4o',
+  api_key: '',
+  temperature: 0.7,
+  max_tokens: 4096,
+  timeout_seconds: 30,
+};
+
 function ProviderForm({
   initial,
   onSave,
@@ -78,6 +89,7 @@ function ProviderForm({
   loading: boolean;
 }) {
   const [form] = Form.useForm<ProviderFormValues>();
+  const providerType = Form.useWatch('provider_type', form) ?? initial?.provider_type ?? 'openai';
 
   const defaultUrls: Record<ProviderType, string> = {
     openai: 'https://api.openai.com',
@@ -85,31 +97,29 @@ function ProviderForm({
     openai_compatible: '',
   };
 
+  useEffect(() => {
+    form.resetFields();
+    form.setFieldsValue(
+      initial
+        ? {
+            provider_type: initial.provider_type,
+            base_url: initial.base_url,
+            model_name: initial.model_name,
+            api_key: initial.api_key,
+            temperature: initial.temperature,
+            max_tokens: initial.max_tokens,
+            timeout_seconds: initial.timeout_seconds,
+          }
+        : DEFAULT_PROVIDER_VALUES,
+    );
+  }, [form, initial]);
+
   return (
     <div className={styles.formWrap}>
       <Form
         form={form}
         layout="vertical"
-        initialValues={
-          initial
-            ? {
-                provider_type: initial.provider_type,
-                base_url: initial.base_url,
-                model_name: initial.model_name,
-                api_key: initial.api_key,
-                temperature: initial.temperature,
-                max_tokens: initial.max_tokens,
-                timeout_seconds: initial.timeout_seconds,
-              }
-            : {
-                provider_type: 'openai',
-                base_url: 'https://api.openai.com',
-                model_name: 'gpt-4o',
-                temperature: 0.7,
-                max_tokens: 4096,
-                timeout_seconds: 30,
-              }
-        }
+        initialValues={DEFAULT_PROVIDER_VALUES}
         onFinish={onSave}
         size="middle"
       >
@@ -150,10 +160,29 @@ function ProviderForm({
         <Form.Item
           name="api_key"
           label="API Key"
-          rules={[]}
-          extra="本地部署模型（如 Ollama）可留空"
+          rules={[
+            {
+              validator: async (_, value: string | undefined) => {
+                if (providerType !== 'openai_compatible' && !value?.trim()) {
+                  throw new Error('当前供应商必须填写 API Key');
+                }
+              },
+            },
+          ]}
+          extra={
+            providerType === 'openai_compatible'
+              ? 'OpenAI 兼容接口在连接本地模型时可留空。'
+              : '当前供应商必须填写 API Key。'
+          }
         >
-          <Input.Password placeholder="sk-...（本地模型可留空）" visibilityToggle />
+          <Input.Password
+            placeholder={
+              providerType === 'openai_compatible'
+                ? '本地模型可留空，远程兼容接口请填写'
+                : 'sk-...'
+            }
+            visibilityToggle
+          />
         </Form.Item>
 
         <div className={styles.formGrid3}>
@@ -333,11 +362,15 @@ export default function SettingsPage() {
   }, []);
 
   const { data: providers, isLoading } = useProviders();
+  const { data: editingProvider, isLoading: editingLoading } = useProvider(editingId);
   const createMutation = useCreateProvider();
   const updateMutation = useUpdateProvider();
   const testMutation = useTestProvider();
   const setDefaultMutation = useSetDefaultProvider();
   const deleteMutation = useDeleteProvider();
+  const editingProviderForForm =
+    editingProvider && editingId === editingProvider.id ? editingProvider : undefined;
+  const isEditingProviderLoading = !!editingId && editingLoading && !editingProviderForForm;
 
   // Add provider
   const handleAdd = useCallback(
@@ -497,13 +530,19 @@ export default function SettingsPage() {
           <div className={styles.providerList}>
             {providers.map((p) =>
               editingId === p.id ? (
-                <ProviderForm
-                  key={p.id}
-                  initial={p}
-                  onSave={(values) => handleEdit(p.id, values)}
-                  onCancel={() => setEditingId(null)}
-                  loading={updateMutation.isPending}
-                />
+                isEditingProviderLoading ? (
+                  <div key={p.id} className={styles.formWrap}>
+                    <Skeleton active paragraph={{ rows: 6 }} />
+                  </div>
+                ) : (
+                  <ProviderForm
+                    key={p.id}
+                    initial={editingProviderForForm}
+                    onSave={(values) => handleEdit(p.id, values)}
+                    onCancel={() => setEditingId(null)}
+                    loading={updateMutation.isPending || editingLoading}
+                  />
+                )
               ) : (
                 <ProviderCard
                   key={p.id}

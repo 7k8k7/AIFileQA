@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 ProviderType = Literal["openai", "claude", "openai_compatible"]
 
@@ -15,6 +15,12 @@ class ProviderCreate(BaseModel):
     timeout_seconds: int = 30
     is_default: bool = False
 
+    @model_validator(mode="after")
+    def validate_api_key(self) -> "ProviderCreate":
+        if self.provider_type != "openai_compatible" and not self.api_key.strip():
+            raise ValueError("当前供应商必须提供 API Key")
+        return self
+
 
 class ProviderUpdate(BaseModel):
     provider_type: ProviderType | None = None
@@ -25,6 +31,12 @@ class ProviderUpdate(BaseModel):
     max_tokens: int | None = None
     timeout_seconds: int | None = None
 
+    @model_validator(mode="after")
+    def validate_api_key(self) -> "ProviderUpdate":
+        if self.provider_type != "openai_compatible" and self.api_key is not None and not self.api_key.strip():
+            raise ValueError("当前供应商必须提供 API Key")
+        return self
+
 
 class ProviderOut(BaseModel):
     id: str
@@ -32,6 +44,22 @@ class ProviderOut(BaseModel):
     base_url: str
     model_name: str
     api_key: str  # masked before returning
+    temperature: float
+    max_tokens: int
+    timeout_seconds: int
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ProviderDetailOut(BaseModel):
+    id: str
+    provider_type: ProviderType
+    base_url: str
+    model_name: str
+    api_key: str
     temperature: float
     max_tokens: int
     timeout_seconds: int

@@ -21,7 +21,9 @@ export interface ChatSession {
   id: string;
   title: string;
   scope_type: ScopeType;
+  provider_id?: string;
   document_id?: string;
+  document_ids: string[];
   created_at: string;
   updated_at: string;
 }

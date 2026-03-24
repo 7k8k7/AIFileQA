@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { Button, Modal, Radio, Select, Input, Skeleton, App, Tag, Tooltip } from 'antd';
+import { Button, Modal, Radio, Select, Input, Skeleton, App, Tag, Tooltip, Descriptions } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
   SendOutlined,
+  ReloadOutlined,
   MessageOutlined,
   FileTextOutlined,
   GlobalOutlined,
@@ -13,6 +14,8 @@ import {
   InboxOutlined,
   RightOutlined,
   FileSearchOutlined,
+  ApiOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
@@ -23,11 +26,12 @@ import {
   useMessages,
   useInvalidateMessages,
   useDocuments,
+  useProviders,
 } from '../../hooks';
-import { sendMessage } from '../../services';
+import { regenerateMessage, sendMessage } from '../../services';
 import { useChatStore } from '../../stores';
 import type { SourcesData } from '../../stores/chatStore';
-import type { ChatMessage, ScopeType } from '../../types';
+import type { ChatMessage, ProviderConfig, ScopeType } from '../../types';
 import styles from './Chat.module.css';
 
 // ── Helpers ──
@@ -49,23 +53,35 @@ function NewSessionDialog({
   open,
   onClose,
   onCreate,
+  providers,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreate: (scope: ScopeType, docId?: string) => void;
+  onCreate: (scope: ScopeType, providerId?: string, docIds?: string[]) => void;
+  providers: ProviderConfig[];
 }) {
   const [scope, setScope] = useState<ScopeType>('all');
-  const [docId, setDocId] = useState<string>();
+  const [providerId, setProviderId] = useState<string>();
+  const [docIds, setDocIds] = useState<string[]>([]);
   const { data: docsData } = useDocuments();
   const availableDocs = useMemo(
     () => docsData?.items.filter((d) => d.status === '可用') ?? [],
     [docsData],
   );
+  const defaultProviderId = useMemo(
+    () => providers.find((p) => p.is_default)?.id ?? providers[0]?.id,
+    [providers],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setScope('all');
+    setDocIds([]);
+    setProviderId(defaultProviderId);
+  }, [defaultProviderId, open]);
 
   const handleOk = () => {
-    onCreate(scope, scope === 'single' ? docId : undefined);
-    setScope('all');
-    setDocId(undefined);
+    onCreate(scope, providerId, scope === 'single' ? docIds : undefined);
     onClose();
   };
 
@@ -77,10 +93,30 @@ function NewSessionDialog({
       onOk={handleOk}
       okText="创建会话"
       cancelText="取消"
-      okButtonProps={{ disabled: scope === 'single' && !docId }}
+      okButtonProps={{ disabled: !providerId || (scope === 'single' && docIds.length === 0) }}
       destroyOnClose
     >
       <div className={styles.dialogBody}>
+        <div className={styles.dialogField}>
+          <label className={styles.dialogLabel}>使用模型</label>
+          {providers.length === 0 ? (
+            <div className={styles.noDocsHint}>
+              <ApiOutlined /> 暂无可用供应商，请先到设置页配置
+            </div>
+          ) : (
+            <Select
+              placeholder="选择一个供应商"
+              value={providerId}
+              onChange={setProviderId}
+              style={{ width: '100%' }}
+              options={providers.map((p) => ({
+                value: p.id,
+                label: `${p.provider_type === 'openai' ? 'OpenAI' : p.provider_type === 'claude' ? 'Claude' : '兼容接口'} · ${p.model_name}${p.is_default ? '（默认）' : ''}`,
+              }))}
+            />
+          )}
+        </div>
+
         <div className={styles.dialogField}>
           <label className={styles.dialogLabel}>检索范围</label>
           <Radio.Group value={scope} onChange={(e) => setScope(e.target.value)}>
@@ -102,9 +138,10 @@ function NewSessionDialog({
               </div>
             ) : (
               <Select
-                placeholder="选择一个文档"
-                value={docId}
-                onChange={setDocId}
+                mode="multiple"
+                placeholder="选择一个或多个文档"
+                value={docIds}
+                onChange={setDocIds}
                 style={{ width: '100%' }}
                 options={availableDocs.map((d) => ({
                   value: d.id,
@@ -205,6 +242,8 @@ function SourcesPanel({ sources }: { sources: SourcesData }) {
 export default function ChatPage() {
   const { message: msgApi } = App.useApp();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [providerModalOpen, setProviderModalOpen] = useState(false);
+  const [documentModalOpen, setDocumentModalOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -215,7 +254,13 @@ export default function ChatPage() {
     streamingContent,
     isStreaming,
     streamingSources,
+    optimisticMessages,
+    regeneratingMessageId,
     setActiveSession,
+    addOptimisticUserMessage,
+    commitOptimisticUserMessage,
+    clearConfirmedOptimisticMessages,
+    clearOptimisticMessages,
     appendStreamToken,
     startStreaming,
     stopStreaming,
@@ -225,6 +270,8 @@ export default function ChatPage() {
   // Queries
   const { data: sessions, isLoading: sessionsLoading } = useSessions();
   const { data: messages, isLoading: messagesLoading } = useMessages(activeSessionId);
+  const { data: providers = [] } = useProviders();
+  const { data: docsData } = useDocuments();
   const invalidateMessages = useInvalidateMessages();
   const createMutation = useCreateSession();
   const deleteMutation = useDeleteSession();
@@ -236,16 +283,42 @@ export default function ChatPage() {
     }
   }, [sessions, activeSessionId, setActiveSession]);
 
+  const displayedMessages = useMemo(
+    () => {
+      const merged = [...(messages ?? []), ...optimisticMessages.filter((m) => m.session_id === activeSessionId)];
+      const deduped = new Map(merged.map((message) => [message.id, message]));
+      return Array.from(deduped.values()).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+    },
+    [messages, optimisticMessages, activeSessionId],
+  );
+  const latestAssistantMessageId = useMemo(
+    () => [...displayedMessages].reverse().find((msg) => msg.role === 'assistant')?.id,
+    [displayedMessages],
+  );
+
   // Scroll to bottom on new messages or streaming
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+  }, [displayedMessages, streamingContent]);
+
+  useEffect(() => {
+    if (messages?.length) {
+      clearConfirmedOptimisticMessages(messages);
+    }
+  }, [messages, clearConfirmedOptimisticMessages]);
 
   // Create session
   const handleCreate = useCallback(
-    (scope: ScopeType, docId?: string) => {
+    (scope: ScopeType, providerId?: string, docIds?: string[]) => {
       createMutation.mutate(
-        { scope_type: scope, document_id: docId },
+        {
+          scope_type: scope,
+          provider_id: providerId,
+          document_id: docIds?.[0],
+          document_ids: docIds,
+        },
         {
           onSuccess: (session) => {
             setActiveSession(session.id);
@@ -283,14 +356,21 @@ export default function ChatPage() {
     if (!content || !activeSessionId || isStreaming) return;
 
     setInputValue('');
+    const tempId = addOptimisticUserMessage(activeSessionId, content);
 
     const abort = sendMessage(activeSessionId, content, {
       onToken: (token) => appendStreamToken(token),
+      onAccepted: ({ userMessageId }) => {
+        if (userMessageId) {
+          commitOptimisticUserMessage(tempId, userMessageId);
+        }
+      },
       onDone: () => {
         stopStreaming();
         invalidateMessages(activeSessionId);
       },
       onError: (err) => {
+        clearOptimisticMessages(activeSessionId);
         stopStreaming();
         invalidateMessages(activeSessionId);
         msgApi.error(`发送失败：${err.message}`);
@@ -299,12 +379,14 @@ export default function ChatPage() {
     });
 
     startStreaming(abort);
-    // Invalidate to show user message immediately
-    invalidateMessages(activeSessionId);
   }, [
     inputValue,
     activeSessionId,
     isStreaming,
+    addOptimisticUserMessage,
+    commitOptimisticUserMessage,
+    clearConfirmedOptimisticMessages,
+    clearOptimisticMessages,
     appendStreamToken,
     startStreaming,
     stopStreaming,
@@ -312,6 +394,38 @@ export default function ChatPage() {
     setStreamingSources,
     msgApi,
   ]);
+
+  const handleRegenerate = useCallback(
+    (messageId: string) => {
+      if (!activeSessionId || isStreaming) return;
+
+      const abort = regenerateMessage(activeSessionId, messageId, {
+        onToken: (token) => appendStreamToken(token),
+        onDone: () => {
+          stopStreaming();
+          invalidateMessages(activeSessionId);
+        },
+        onError: (err) => {
+          stopStreaming();
+          invalidateMessages(activeSessionId);
+          msgApi.error(`重新生成失败：${err.message}`);
+        },
+        onSources: (data) => setStreamingSources(data),
+      });
+
+      startStreaming(abort, { regeneratingMessageId: messageId });
+    },
+    [
+      activeSessionId,
+      isStreaming,
+      appendStreamToken,
+      stopStreaming,
+      invalidateMessages,
+      msgApi,
+      setStreamingSources,
+      startStreaming,
+    ],
+  );
 
   // Key handler
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -323,6 +437,36 @@ export default function ChatPage() {
 
   // Current session info
   const activeSession = sessions?.find((s) => s.id === activeSessionId);
+  const defaultProvider = useMemo(
+    () => providers.find((p) => p.is_default),
+    [providers],
+  );
+  const currentProvider = useMemo(
+    () => providers.find((p) => p.id === activeSession?.provider_id) ?? defaultProvider,
+    [providers, activeSession?.provider_id, defaultProvider],
+  );
+  const currentProviderLabel = useMemo(() => {
+    if (!currentProvider) return '未配置供应商';
+    if (currentProvider.provider_type === 'openai') return 'OpenAI';
+    if (currentProvider.provider_type === 'claude') return 'Anthropic Claude';
+    return 'OpenAI 兼容';
+  }, [currentProvider]);
+  const documentNameMap = useMemo(
+    () => new Map((docsData?.items ?? []).map((doc) => [doc.id, doc.file_name])),
+    [docsData],
+  );
+  const activeSessionDocumentNames = useMemo(() => {
+    if (!activeSession || activeSession.scope_type !== 'single') return [];
+    const ids = activeSession.document_ids?.length ? activeSession.document_ids : activeSession.document_id ? [activeSession.document_id] : [];
+    return ids
+      .map((id) => documentNameMap.get(id))
+      .filter((name): name is string => !!name);
+  }, [activeSession, documentNameMap]);
+  const activeSessionDocumentSummary = useMemo(() => {
+    if (activeSessionDocumentNames.length === 0) return '';
+    if (activeSessionDocumentNames.length === 1) return activeSessionDocumentNames[0];
+    return `${activeSessionDocumentNames[0]} 等${activeSessionDocumentNames.length}个文档`;
+  }, [activeSessionDocumentNames]);
 
   // ── Render ──
 
@@ -399,17 +543,49 @@ export default function ChatPage() {
           <>
             {/* Session header */}
             <div className={styles.chatHeader}>
-              <span className={styles.chatTitle}>{activeSession?.title}</span>
-              <Tag
-                color={activeSession?.scope_type === 'all' ? 'blue' : 'green'}
-                className={styles.scopeTag}
+              <div className={styles.chatHeaderMeta}>
+                <span className={styles.chatTitle}>{activeSession?.title}</span>
+                <div className={styles.chatHeaderTags}>
+                  <Tag
+                    color={activeSession?.scope_type === 'all' ? 'blue' : 'green'}
+                    className={styles.scopeTag}
+                  >
+                    {activeSession?.scope_type === 'all' ? (
+                      <><GlobalOutlined /> 全部文档</>
+                    ) : (
+                      <><FileTextOutlined /> 指定文档</>
+                    )}
+                  </Tag>
+                  {activeSession?.scope_type === 'single' && activeSessionDocumentNames.length > 0 && (
+                    <Button
+                      type="text"
+                      size="small"
+                      className={styles.docSummaryButton}
+                      icon={<FileTextOutlined />}
+                      onClick={() => setDocumentModalOpen(true)}
+                    >
+                      {activeSessionDocumentSummary}
+                    </Button>
+                  )}
+                  <Tag color={currentProvider ? 'gold' : 'default'} className={styles.scopeTag}>
+                    <ApiOutlined /> {currentProviderLabel}
+                  </Tag>
+                  {currentProvider && (
+                    <Tag color="purple" className={styles.scopeTag}>
+                      {currentProvider.model_name}
+                    </Tag>
+                  )}
+                </div>
+              </div>
+              <Button
+                type="text"
+                size="small"
+                icon={<InfoCircleOutlined />}
+                onClick={() => setProviderModalOpen(true)}
+                disabled={!currentProvider}
               >
-                {activeSession?.scope_type === 'all' ? (
-                  <><GlobalOutlined /> 全部文档</>
-                ) : (
-                  <><FileTextOutlined /> 指定文档</>
-                )}
-              </Tag>
+                查看设置
+              </Button>
             </div>
 
             {/* Messages */}
@@ -419,28 +595,55 @@ export default function ChatPage() {
                   <Skeleton active avatar paragraph={{ rows: 2 }} />
                   <Skeleton active avatar paragraph={{ rows: 3 }} />
                 </div>
-              ) : messages && messages.length === 0 && !isStreaming ? (
+              ) : displayedMessages.length === 0 && !isStreaming ? (
                 <div className={styles.messagesEmpty}>
                   <RobotOutlined className={styles.messagesEmptyIcon} />
                   <p>在下方输入您的问题，开始智能问答</p>
                 </div>
               ) : (
                 <>
-                  {messages?.map((m) => (
+                  {displayedMessages.map((m) => (
                     <div key={m.id}>
-                      <MessageBubble msg={m} />
-                      {m.role === 'assistant' && m.sources && (
-                        <SourcesPanel sources={m.sources} />
+                      {isStreaming && regeneratingMessageId === m.id ? (
+                        <>
+                          <MessageBubble
+                            msg={{ role: 'assistant', content: streamingContent }}
+                            isStreaming
+                          />
+                          {streamingSources && <SourcesPanel sources={streamingSources} />}
+                        </>
+                      ) : (
+                        <>
+                          <MessageBubble msg={m} />
+                          {m.role === 'assistant' && (
+                            <div className={styles.msgActions}>
+                              <Tooltip title={m.id === latestAssistantMessageId ? '重新生成这条回复' : '目前只支持重新生成最后一条回复'}>
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<ReloadOutlined />}
+                                  onClick={() => handleRegenerate(m.id)}
+                                  disabled={isStreaming || m.id !== latestAssistantMessageId}
+                                >
+                                  重新生成
+                                </Button>
+                              </Tooltip>
+                            </div>
+                          )}
+                          {m.role === 'assistant' && m.sources && (
+                            <SourcesPanel sources={m.sources} />
+                          )}
+                        </>
                       )}
                     </div>
                   ))}
-                  {isStreaming && streamingContent && (
+                  {isStreaming && !regeneratingMessageId && streamingContent && (
                     <MessageBubble
                       msg={{ role: 'assistant', content: streamingContent }}
                       isStreaming
                     />
                   )}
-                  {isStreaming && streamingSources && <SourcesPanel sources={streamingSources} />}
+                  {isStreaming && !regeneratingMessageId && streamingSources && <SourcesPanel sources={streamingSources} />}
                 </>
               )}
               <div ref={messagesEndRef} />
@@ -475,7 +678,53 @@ export default function ChatPage() {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         onCreate={handleCreate}
+        providers={providers}
       />
+
+      <Modal
+        title="当前会话模型设置"
+        open={providerModalOpen}
+        onCancel={() => setProviderModalOpen(false)}
+        footer={null}
+      >
+        {currentProvider ? (
+          <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label="供应商">{currentProviderLabel}</Descriptions.Item>
+            <Descriptions.Item label="模型">{currentProvider.model_name}</Descriptions.Item>
+            <Descriptions.Item label="Base URL">{currentProvider.base_url}</Descriptions.Item>
+            <Descriptions.Item label="API Key">{currentProvider.api_key || '未设置'}</Descriptions.Item>
+            <Descriptions.Item label="Temperature">{currentProvider.temperature}</Descriptions.Item>
+            <Descriptions.Item label="Max Tokens">{currentProvider.max_tokens}</Descriptions.Item>
+            <Descriptions.Item label="超时">{currentProvider.timeout_seconds}s</Descriptions.Item>
+          </Descriptions>
+        ) : (
+          <div className={styles.noDocsHint}>
+            <ApiOutlined /> 当前会话还没有可用的供应商配置
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title="当前会话文档范围"
+        open={documentModalOpen}
+        onCancel={() => setDocumentModalOpen(false)}
+        footer={null}
+      >
+        {activeSessionDocumentNames.length > 0 ? (
+          <div className={styles.documentList}>
+            {activeSessionDocumentNames.map((name) => (
+              <div key={name} className={styles.documentListItem}>
+                <FileTextOutlined />
+                <span>{name}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className={styles.noDocsHint}>
+            <FileTextOutlined /> 当前会话没有选中文档
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

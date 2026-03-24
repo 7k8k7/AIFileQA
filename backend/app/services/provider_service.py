@@ -5,7 +5,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.provider import ProviderConfig
-from app.schemas.provider import ProviderCreate, ProviderUpdate, ProviderOut, mask_api_key
+from app.schemas.provider import (
+    ProviderCreate,
+    ProviderUpdate,
+    ProviderOut,
+    ProviderDetailOut,
+    mask_api_key,
+)
 from app.services.provider_url import build_provider_url, normalize_provider_base_url
 
 
@@ -25,6 +31,15 @@ async def get_provider(db: AsyncSession, provider_id: str) -> ProviderConfig | N
     return (
         await db.execute(select(ProviderConfig).where(ProviderConfig.id == provider_id))
     ).scalar_one_or_none()
+
+
+async def get_provider_detail(
+    db: AsyncSession, provider_id: str
+) -> ProviderDetailOut | None:
+    provider = await get_provider(db, provider_id)
+    if not provider:
+        return None
+    return ProviderDetailOut.model_validate(provider)
 
 
 async def create_provider(db: AsyncSession, data: ProviderCreate) -> ProviderConfig:

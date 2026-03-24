@@ -2,6 +2,7 @@ export { useDocuments, useDocumentsWithPolling, useUploadDocument, useDeleteDocu
 export { useSessions, useCreateSession, useDeleteSession, useMessages, useInvalidateMessages } from './useSessions';
 export {
   useProviders,
+  useProvider,
   useCreateProvider,
   useUpdateProvider,
   useTestProvider,

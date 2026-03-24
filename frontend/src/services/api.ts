@@ -29,6 +29,7 @@ export function sseStream(
     onToken: (content: string) => void;
     onDone: (messageId: string) => void;
     onError: (error: Error) => void;
+    onAccepted?: (data: { userMessageId?: string }) => void;
     onSources?: (data: { retrieval_method: string; chunks: import('../types').SourceChunk[] }) => void;
   },
 ): () => void {
@@ -57,6 +58,10 @@ export function sseStream(
         callbacks.onError(new Error('ReadableStream not supported'));
         return;
       }
+
+      callbacks.onAccepted?.({
+        userMessageId: res.headers.get('X-User-Message-Id') ?? undefined,
+      });
 
       const decoder = new TextDecoder();
       let buffer = '';

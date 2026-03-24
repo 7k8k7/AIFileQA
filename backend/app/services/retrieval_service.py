@@ -45,6 +45,7 @@ async def retrieve_chunks(
     *,
     scope_type: str = "all",
     document_id: str | None = None,
+    document_ids: list[str] | None = None,
     top_k: int = DEFAULT_TOP_K,
 ) -> tuple[list[RetrievedChunk], str]:
     """Retrieve the most relevant chunks for a query.
@@ -52,7 +53,7 @@ async def retrieve_chunks(
     Returns (chunks, retrieval_method) where retrieval_method is
     "vector", "keyword", or "none".
     """
-    doc_ids = await _get_candidate_doc_ids(db, scope_type, document_id)
+    doc_ids = await _get_candidate_doc_ids(db, scope_type, document_id, document_ids)
     if not doc_ids:
         logger.info("RAG: no candidate docs (scope=%s, doc_id=%s)", scope_type, document_id)
         return [], "none"
@@ -91,6 +92,7 @@ async def retrieve_chunk_hits(
     *,
     scope_type: str = "all",
     document_id: str | None = None,
+    document_ids: list[str] | None = None,
     top_k: int = DEFAULT_TOP_K,
 ) -> list[RetrievedChunk]:
     chunks, _ = await retrieve_chunks(
@@ -98,6 +100,7 @@ async def retrieve_chunk_hits(
         query,
         scope_type=scope_type,
         document_id=document_id,
+        document_ids=document_ids,
         top_k=top_k,
     )
     return chunks
@@ -109,6 +112,7 @@ async def build_rag_prompt(
     *,
     scope_type: str = "all",
     document_id: str | None = None,
+    document_ids: list[str] | None = None,
 ) -> RAGResult:
     """Build a RAG-augmented system prompt with retrieved context."""
     chunks, method = await retrieve_chunks(
@@ -116,6 +120,7 @@ async def build_rag_prompt(
         query,
         scope_type=scope_type,
         document_id=document_id,
+        document_ids=document_ids,
     )
 
     if not chunks:
@@ -244,18 +249,21 @@ async def _get_candidate_doc_ids(
     db: AsyncSession,
     scope_type: str,
     document_id: str | None,
+    document_ids: list[str] | None = None,
 ) -> list[str]:
-    if scope_type == "single" and not document_id:
+    selected_ids = document_ids or ([document_id] if document_id else [])
+
+    if scope_type == "single" and not selected_ids:
         return []
 
-    if scope_type == "single" and document_id:
-        doc = (await db.execute(
-            select(Document).where(
-                Document.id == document_id,
+    if scope_type == "single" and selected_ids:
+        docs = (await db.execute(
+            select(Document.id).where(
+                Document.id.in_(selected_ids),
                 Document.status == "可用",
             )
-        )).scalar_one_or_none()
-        return [doc.id] if doc else []
+        )).scalars().all()
+        return list(docs)
 
     docs = (await db.execute(
         select(Document).where(Document.status == "可用")

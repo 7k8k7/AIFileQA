@@ -6,6 +6,11 @@ export async function fetchProviders(): Promise<ProviderConfig[]> {
   return data;
 }
 
+export async function fetchProvider(id: string): Promise<ProviderConfig> {
+  const { data } = await api.get<ProviderConfig>(`/providers/${id}`);
+  return data;
+}
+
 export async function createProvider(
   body: Omit<ProviderConfig, 'id' | 'created_at' | 'updated_at'>,
 ): Promise<ProviderConfig> {

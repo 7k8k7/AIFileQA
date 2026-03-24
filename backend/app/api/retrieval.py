@@ -15,14 +15,15 @@ async def search_chunks(
     data: RetrievalQuery,
     db: AsyncSession = Depends(get_db),
 ):
-    if data.scope_type == "single" and not data.document_id:
-        raise HTTPException(status_code=400, detail="single 范围必须提供 document_id")
+    if data.scope_type == "single" and not (data.document_ids or data.document_id):
+        raise HTTPException(status_code=400, detail="single 范围必须提供至少一个 document_id")
 
     rows, _ = await retrieve_chunks(
         db,
         data.query,
         scope_type=data.scope_type,
         document_id=data.document_id,
+        document_ids=data.document_ids,
         top_k=data.top_k,
     )
     return [

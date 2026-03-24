@@ -7,6 +7,7 @@ class RetrievalQuery(BaseModel):
     query: str = Field(min_length=1)
     scope_type: ScopeType = "all"
     document_id: str | None = None
+    document_ids: list[str] | None = None
     top_k: int = Field(default=6, ge=1, le=20)
 
 
