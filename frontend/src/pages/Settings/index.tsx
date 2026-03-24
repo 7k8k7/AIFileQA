@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Button,
   Form,
@@ -22,7 +22,6 @@ import {
   ApiOutlined,
   LinkOutlined,
   ThunderboltOutlined,
-  SettingOutlined,
 } from '@ant-design/icons';
 import {
   useProviders,
@@ -73,7 +72,6 @@ function ProviderForm({
   loading: boolean;
 }) {
   const [form] = Form.useForm<ProviderFormValues>();
-  const providerType = Form.useWatch('provider_type', form);
 
   const defaultUrls: Record<ProviderType, string> = {
     openai: 'https://api.openai.com/v1',
@@ -319,6 +317,14 @@ export default function SettingsPage() {
   const [testStates, setTestStates] = useState<
     Record<string, { loading: boolean; result?: { success: boolean; message: string } }>
   >({});
+  const testTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Cleanup test timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(testTimersRef.current).forEach(clearTimeout);
+    };
+  }, []);
 
   const { data: providers, isLoading } = useProviders();
   const createMutation = useCreateProvider();
@@ -366,17 +372,23 @@ export default function SettingsPage() {
   // Test connection
   const handleTest = useCallback(
     (id: string) => {
+      // Clear any existing timer for this provider
+      if (testTimersRef.current[id]) {
+        clearTimeout(testTimersRef.current[id]);
+        delete testTimersRef.current[id];
+      }
       setTestStates((s) => ({ ...s, [id]: { loading: true } }));
       testMutation.mutate(id, {
         onSuccess: (result) => {
           setTestStates((s) => ({ ...s, [id]: { loading: false, result } }));
           // Clear result after 5s
-          setTimeout(() => {
+          testTimersRef.current[id] = setTimeout(() => {
             setTestStates((s) => {
               const next = { ...s };
               delete next[id];
               return next;
             });
+            delete testTimersRef.current[id];
           }, 5000);
         },
         onError: (err) => {

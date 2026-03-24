@@ -3,7 +3,9 @@
     "allow": [
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(curl -sL \"https://api.github.com/repos/vercel-labs/agent-skills/contents/skills/react-best-practices/references?ref=react-best-practices\")",
-      "Bash(python -m json.tool)"
+      "Bash(python -m json.tool)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(claude --version)"
     ]
   }
 }

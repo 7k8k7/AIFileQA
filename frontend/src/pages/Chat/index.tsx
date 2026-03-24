@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { Button, Modal, Radio, Select, Input, Skeleton, App, Tag, Tooltip } from 'antd';
 import {
   PlusOutlined,
@@ -24,7 +24,7 @@ import {
 } from '../../hooks';
 import { sendMessage } from '../../services';
 import { useChatStore } from '../../stores';
-import type { ScopeType, ChatMessage } from '../../types';
+import type { ScopeType } from '../../types';
 import styles from './Chat.module.css';
 
 // ── Helpers ──
@@ -54,7 +54,10 @@ function NewSessionDialog({
   const [scope, setScope] = useState<ScopeType>('all');
   const [docId, setDocId] = useState<string>();
   const { data: docsData } = useDocuments();
-  const availableDocs = docsData?.items.filter((d) => d.status === '可用') ?? [];
+  const availableDocs = useMemo(
+    () => docsData?.items.filter((d) => d.status === '可用') ?? [],
+    [docsData],
+  );
 
   const handleOk = () => {
     onCreate(scope, scope === 'single' ? docId : undefined);
@@ -163,7 +166,6 @@ export default function ChatPage() {
     appendStreamToken,
     startStreaming,
     stopStreaming,
-    resetStream,
   } = useChatStore();
 
   // Queries

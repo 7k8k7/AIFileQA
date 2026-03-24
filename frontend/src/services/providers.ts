@@ -1,4 +1,4 @@
-import type { ProviderConfig, ProviderType } from '../types';
+import type { ProviderConfig } from '../types';
 import { mockProviders } from './mock-data';
 
 // ── Mock state ──

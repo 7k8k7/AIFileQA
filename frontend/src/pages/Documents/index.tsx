@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   Table,
   Button,
@@ -23,7 +23,6 @@ import {
   InboxOutlined,
   MoreOutlined,
   ExclamationCircleOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import {
@@ -94,7 +93,7 @@ export default function DocumentsPage() {
 
   // Upload handler
   const handleUpload: UploadProps['customRequest'] = useCallback(
-    (options) => {
+    (options: Parameters<NonNullable<UploadProps['customRequest']>>[0]) => {
       const file = options.file as File;
       if (file.size > MAX_SIZE) {
         msg.error(`文件 ${file.name} 超过 50MB 限制`);
@@ -134,71 +133,74 @@ export default function DocumentsPage() {
     [deleteMutation, msg],
   );
 
-  // Table columns
-  const columns: ColumnsType<Document> = [
-    {
-      title: '文件名',
-      dataIndex: 'file_name',
-      key: 'file_name',
-      render: (name: string, record) => (
-        <div className={styles.fileName}>
-          <FileIcon ext={record.file_ext} />
-          <span className={styles.fileNameText}>{name}</span>
-        </div>
-      ),
-    },
-    {
-      title: '大小',
-      dataIndex: 'file_size',
-      key: 'file_size',
-      width: 100,
-      render: (size: number) => (
-        <span className={styles.fileSize}>{formatFileSize(size)}</span>
-      ),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 120,
-      render: (status: DocumentStatus, record) => {
-        const cfg = STATUS_MAP[status];
-        return (
-          <Tooltip title={record.error_message}>
-            <Tag color={cfg.color}>{cfg.label}</Tag>
-          </Tooltip>
-        );
+  // Table columns — memoized to avoid unnecessary Table re-renders
+  const columns: ColumnsType<Document> = useMemo(
+    () => [
+      {
+        title: '文件名',
+        dataIndex: 'file_name',
+        key: 'file_name',
+        render: (name: string, record) => (
+          <div className={styles.fileName}>
+            <FileIcon ext={record.file_ext} />
+            <span className={styles.fileNameText}>{name}</span>
+          </div>
+        ),
       },
-    },
-    {
-      title: '上传时间',
-      dataIndex: 'uploaded_at',
-      key: 'uploaded_at',
-      width: 140,
-      render: (t: string) => <span className={styles.fileDate}>{formatDate(t)}</span>,
-    },
-    {
-      title: '',
-      key: 'actions',
-      width: 48,
-      render: (_, record) => {
-        const items: MenuProps['items'] = [
-          {
-            key: 'delete',
-            icon: <DeleteOutlined />,
-            label: '删除',
-            danger: true,
-            onClick: () => handleDelete(record),
-          },
-        ];
-        return (
-          <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
-            <Button type="text" size="small" icon={<MoreOutlined />} />
-          </Dropdown>
-        );
+      {
+        title: '大小',
+        dataIndex: 'file_size',
+        key: 'file_size',
+        width: 100,
+        render: (size: number) => (
+          <span className={styles.fileSize}>{formatFileSize(size)}</span>
+        ),
       },
-    },
-  ];
+      {
+        title: '状态',
+        dataIndex: 'status',
+        key: 'status',
+        width: 120,
+        render: (status: DocumentStatus, record) => {
+          const cfg = STATUS_MAP[status];
+          return (
+            <Tooltip title={record.error_message}>
+              <Tag color={cfg.color}>{cfg.label}</Tag>
+            </Tooltip>
+          );
+        },
+      },
+      {
+        title: '上传时间',
+        dataIndex: 'uploaded_at',
+        key: 'uploaded_at',
+        width: 140,
+        render: (t: string) => <span className={styles.fileDate}>{formatDate(t)}</span>,
+      },
+      {
+        title: '',
+        key: 'actions',
+        width: 48,
+        render: (_, record) => {
+          const items: MenuProps['items'] = [
+            {
+              key: 'delete',
+              icon: <DeleteOutlined />,
+              label: '删除',
+              danger: true,
+              onClick: () => handleDelete(record),
+            },
+          ];
+          return (
+            <Dropdown menu={{ items }} trigger={['click']} placement="bottomRight">
+              <Button type="text" size="small" icon={<MoreOutlined />} />
+            </Dropdown>
+          );
+        },
+      },
+    ],
+    [handleDelete],
+  );
 
   // ── Empty state ──
   if (!isLoading && data && data.total === 0 && !keyword) {
