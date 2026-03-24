@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.core.config import settings
+
 
 @dataclass
 class Chunk:
@@ -126,7 +128,11 @@ def parse_document(file_path: str, file_ext: str) -> list[Chunk]:
     idx = 0
 
     for page_no, text in raw_pages:
-        splits = _split_text(text)
+        splits = _split_text(
+            text,
+            chunk_size=settings.chunk_size,
+            overlap=settings.chunk_overlap,
+        )
         for split in splits:
             chunks.append(Chunk(
                 index=idx,

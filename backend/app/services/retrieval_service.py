@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import re
+from math import ceil
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.document import Document, DocumentChunk
 from app.models.provider import ProviderConfig
 from app.services.embedding_service import (
@@ -25,7 +27,7 @@ from app.services.vector_store_service import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TOP_K = 6
+DEFAULT_TOP_K = settings.retrieval_top_k
 
 
 @dataclass(slots=True)
@@ -45,7 +47,7 @@ class RAGResult:
     """Structured result from RAG retrieval — carries both the prompt and metadata."""
     system_prompt: str
     chunks: list[RetrievedChunk]
-    retrieval_method: str  # "vector" | "keyword" | "none"
+    retrieval_method: str  # "hybrid" | "vector" | "keyword" | "none"
 
 
 async def retrieve_chunks(
@@ -61,7 +63,7 @@ async def retrieve_chunks(
     """Retrieve the most relevant chunks for a query.
 
     Returns (chunks, retrieval_method) where retrieval_method is
-    "vector", "keyword", or "none".
+    "hybrid", "vector", "keyword", or "none".
     """
     doc_ids = await _get_candidate_doc_ids(db, scope_type, document_id, document_ids)
     if not doc_ids:
@@ -69,11 +71,16 @@ async def retrieve_chunks(
         return [], "none"
 
     logger.info("RAG: %d candidate doc(s) for scope=%s", len(doc_ids), scope_type)
+    candidate_top_k = max(top_k, ceil(top_k * max(settings.retrieval_candidate_multiplier, 1)))
 
     if provider is None:
         provider = (await db.execute(
             select(ProviderConfig).where(ProviderConfig.is_default == True)  # noqa: E712
         )).scalar_one_or_none()
+
+    keyword_chunks = await _load_candidate_chunks(db, doc_ids)
+    keyword_rows = await _keyword_retrieve(db, query, keyword_chunks, candidate_top_k)
+    vector_rows: list[RetrievedChunk] = []
 
     if provider and can_use_embeddings(provider):
         try:
@@ -83,18 +90,16 @@ async def retrieve_chunks(
                 provider,
                 query,
                 doc_ids=doc_ids,
-                top_k=top_k,
+                top_k=candidate_top_k,
             )
-            if vector_rows:
-                logger.info("RAG: vector retrieval returned %d chunk(s)", len(vector_rows))
-                return vector_rows, "vector"
+            logger.info("RAG: vector retrieval returned %d chunk(s)", len(vector_rows))
         except Exception as e:
             logger.warning("Vector retrieval failed, falling back to keyword: %s", str(e)[:200])
 
-    keyword_chunks = await _load_candidate_chunks(db, doc_ids)
-    results = await _keyword_retrieve(db, query, keyword_chunks, top_k)
-    method = "keyword" if results else "none"
-    logger.info("RAG: keyword retrieval returned %d chunk(s)", len(results))
+    logger.info("RAG: keyword retrieval returned %d chunk(s)", len(keyword_rows))
+
+    results, method = _merge_retrieval_results(vector_rows, keyword_rows, top_k=top_k)
+    logger.info("RAG: merged retrieval returned %d chunk(s), method=%s", len(results), method)
     return results, method
 
 
@@ -280,20 +285,7 @@ async def _keyword_retrieve(
             scored.append((float(score), chunk))
 
     if not scored:
-        fallback = chunks[:top_k]
-        return [
-            RetrievedChunk(
-                chunk_id=chunk.id,
-                document_id=chunk.document_id,
-                document_name=doc_name_map.get(chunk.document_id, "未知文档"),
-                chunk_index=chunk.chunk_index,
-                content=chunk.content,
-                page_no=chunk.page_no,
-                section_label=chunk.section_label,
-                score=None,
-            )
-            for chunk in fallback
-        ]
+        return []
 
     scored.sort(key=lambda item: item[0], reverse=True)
     return [
@@ -309,6 +301,82 @@ async def _keyword_retrieve(
         )
         for score, chunk in scored[:top_k]
     ]
+
+
+def _merge_retrieval_results(
+    vector_rows: list[RetrievedChunk],
+    keyword_rows: list[RetrievedChunk],
+    *,
+    top_k: int,
+) -> tuple[list[RetrievedChunk], str]:
+    if vector_rows and keyword_rows:
+        merged: dict[str, dict[str, object]] = {}
+
+        for chunk, weighted_score in _weighted_scores(vector_rows, settings.retrieval_vector_weight):
+            merged[chunk.chunk_id] = {
+                "chunk": chunk,
+                "score": weighted_score,
+                "has_vector": True,
+                "has_keyword": False,
+            }
+
+        for chunk, weighted_score in _weighted_scores(keyword_rows, settings.retrieval_keyword_weight):
+            entry = merged.get(chunk.chunk_id)
+            if entry:
+                entry["score"] = float(entry["score"]) + weighted_score
+                entry["has_keyword"] = True
+            else:
+                merged[chunk.chunk_id] = {
+                    "chunk": chunk,
+                    "score": weighted_score,
+                    "has_vector": False,
+                    "has_keyword": True,
+                }
+
+        ranked = sorted(
+            merged.values(),
+            key=lambda item: (
+                float(item["score"]),
+                bool(item["has_vector"]) and bool(item["has_keyword"]),
+                _safe_score_value(item["chunk"]),  # type: ignore[arg-type]
+                -int(getattr(item["chunk"], "chunk_index", 0)),  # type: ignore[arg-type]
+            ),
+            reverse=True,
+        )
+        return [item["chunk"] for item in ranked[:top_k]], "hybrid"
+
+    if vector_rows:
+        return vector_rows[:top_k], "vector"
+    if keyword_rows:
+        return keyword_rows[:top_k], "keyword"
+    return [], "none"
+
+
+def _weighted_scores(
+    chunks: list[RetrievedChunk],
+    weight: float,
+) -> list[tuple[RetrievedChunk, float]]:
+    if not chunks:
+        return []
+
+    base_scores = [float(chunk.score or 0.0) for chunk in chunks]
+    max_score = max(base_scores) if base_scores else 0.0
+    if max_score <= 0:
+        max_score = float(len(chunks))
+
+    weighted: list[tuple[RetrievedChunk, float]] = []
+    for idx, chunk in enumerate(chunks):
+        raw_score = float(chunk.score or 0.0)
+        if raw_score > 0:
+            normalized = raw_score / max_score
+        else:
+            normalized = (len(chunks) - idx) / len(chunks)
+        weighted.append((chunk, normalized * weight))
+    return weighted
+
+
+def _safe_score_value(chunk: RetrievedChunk) -> float:
+    return float(chunk.score or 0.0)
 
 
 async def _get_candidate_doc_ids(

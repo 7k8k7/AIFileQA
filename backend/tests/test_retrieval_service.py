@@ -67,8 +67,8 @@ async def test_keyword_retrieve_scores_by_frequency():
 
 
 @pytest.mark.asyncio
-async def test_keyword_retrieve_fallback_on_no_match():
-    """When no keywords match, return first top_k chunks as fallback."""
+async def test_keyword_retrieve_returns_empty_on_no_match():
+    """When no keywords match, avoid returning unrelated fallback chunks."""
     db = AsyncMock()
     chunks = [
         _make_chunk("c1", "doc1", "apple banana cherry", chunk_index=0),
@@ -79,9 +79,7 @@ async def test_keyword_retrieve_fallback_on_no_match():
                       new=AsyncMock(return_value={"doc1": "test.txt"})):
         results = await retrieval_service._keyword_retrieve(db, "xyz_nonexistent", chunks, top_k=1)
 
-    assert len(results) == 1
-    assert results[0].chunk_id == "c1"
-    assert results[0].score is None
+    assert results == []
 
 
 @pytest.mark.asyncio
@@ -228,3 +226,33 @@ async def test_retrieve_chunks_keyword_fallback():
 
     assert method == "keyword"
     assert len(chunks) == 1
+
+
+def test_merge_retrieval_results_prefers_hybrid_hits():
+    vector_rows = [
+        retrieval_service.RetrievedChunk(
+            chunk_id="c1", document_id="d1", document_name="a.txt",
+            chunk_index=0, content="alpha", score=0.9,
+        ),
+        retrieval_service.RetrievedChunk(
+            chunk_id="c2", document_id="d1", document_name="a.txt",
+            chunk_index=1, content="beta", score=0.6,
+        ),
+    ]
+    keyword_rows = [
+        retrieval_service.RetrievedChunk(
+            chunk_id="c2", document_id="d1", document_name="a.txt",
+            chunk_index=1, content="beta", score=3.0,
+        ),
+        retrieval_service.RetrievedChunk(
+            chunk_id="c3", document_id="d2", document_name="b.txt",
+            chunk_index=0, content="gamma", score=2.0,
+        ),
+    ]
+
+    merged, method = retrieval_service._merge_retrieval_results(
+        vector_rows, keyword_rows, top_k=3
+    )
+
+    assert method == "hybrid"
+    assert [chunk.chunk_id for chunk in merged] == ["c2", "c1", "c3"]

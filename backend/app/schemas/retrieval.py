@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.schemas.chat import ScopeType
 
 
@@ -9,7 +10,7 @@ class RetrievalQuery(BaseModel):
     provider_id: str | None = None
     document_id: str | None = None
     document_ids: list[str] | None = None
-    top_k: int = Field(default=6, ge=1, le=20)
+    top_k: int = Field(default=settings.retrieval_top_k, ge=1, le=20)
 
 
 class RetrievalChunkOut(BaseModel):

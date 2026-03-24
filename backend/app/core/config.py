@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     vector_store_dir: str = "./data/chroma"
     max_upload_size_mb: int = 50
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+    retrieval_top_k: int = 6
+    retrieval_candidate_multiplier: int = 2
+    retrieval_vector_weight: float = 0.65
+    retrieval_keyword_weight: float = 0.35
 
     # Server
     host: str = "0.0.0.0"
