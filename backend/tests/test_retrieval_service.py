@@ -161,6 +161,9 @@ async def test_build_rag_prompt_with_chunks():
     assert len(result.chunks) == 1
     assert "重要内容片段" in result.system_prompt
     assert "test.pdf" in result.system_prompt
+    assert "只能使用提供的文档片段中的事实" in result.system_prompt
+    assert "不要猜测，不要编造" in result.system_prompt
+    assert "关键结论都要标注来源编号" in result.system_prompt
 
 
 @pytest.mark.asyncio
@@ -175,6 +178,8 @@ async def test_build_rag_prompt_no_chunks():
     assert result.retrieval_method == "none"
     assert result.chunks == []
     assert result.system_prompt == retrieval_service._NO_CONTEXT_PROMPT
+    assert "无法基于已上传文档回答" in result.system_prompt
+    assert "不要使用通用知识直接回答" in result.system_prompt
 
 
 # ── retrieve_chunks ──
