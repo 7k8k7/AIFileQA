@@ -14,6 +14,7 @@ from app.services.document_service import (
     delete_document,
     save_upload_file,
 )
+from app.services.parsing_task import trigger_parse
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -59,7 +60,7 @@ async def upload_document(
     # Save file to disk
     dest = save_upload_file(name, content)
 
-    # Create DB record
+    # Create DB record and commit immediately so background task can see it
     doc = await create_document(
         db,
         file_name=name,
@@ -67,7 +68,13 @@ async def upload_document(
         file_size=len(content),
         storage_path=str(dest),
     )
-    return DocumentOut.model_validate(doc)
+    await db.commit()
+    result = DocumentOut.model_validate(doc)
+
+    # Trigger async parsing (runs in background after response)
+    await trigger_parse(doc.id, str(dest), ext)
+
+    return result
 
 
 @router.delete("/{doc_id}", status_code=204)

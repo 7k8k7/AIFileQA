@@ -18,6 +18,7 @@ from app.services.chat_service import (
     save_assistant_message,
 )
 from app.services.llm_service import get_default_provider, stream_chat_completion
+from app.services.retrieval_service import build_rag_prompt
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -89,16 +90,25 @@ async def send_message(
     user_message = await save_user_message(db, session_id, body.content)
     await db.commit()
 
+    # Build RAG system prompt with document context
+    system_prompt = await build_rag_prompt(
+        db,
+        body.content,
+        scope_type=session.scope_type,
+        document_id=session.document_id,
+    )
+
     # Fetch conversation history after the user message is committed.
     history = await list_messages(db, session_id)
     # Exclude the user message we just added (it's already in history now)
-    # We pass history (excluding last) + current content separately
-    prior = history[:-1]  # all messages before the one we just saved
+    prior = history[:-1]
 
     async def event_generator():
         full_content = ""
         try:
-            async for sse_line in stream_chat_completion(provider, prior, body.content):
+            async for sse_line in stream_chat_completion(
+                provider, prior, body.content, system_prompt=system_prompt
+            ):
                 # Extract content for persistence
                 if sse_line.startswith("data: "):
                     try:

@@ -24,16 +24,25 @@ async def stream_chat_completion(
     provider: ProviderConfig,
     messages: list[ChatMessage],
     user_content: str,
+    system_prompt: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Call the LLM provider's streaming API and yield SSE-formatted lines.
+
+    Args:
+        system_prompt: Optional RAG system prompt with document context.
 
     Yields lines like:
         data: {"type":"token","content":"Hello"}
         data: {"type":"done","message_id":"..."}
     """
     # Build message history
-    history = []
+    history: list[dict[str, str]] = []
+
+    # For OpenAI-compatible: inject system prompt as first message
+    if system_prompt and provider.provider_type != "claude":
+        history.append({"role": "system", "content": system_prompt})
+
     for m in messages:
         history.append({"role": m.role, "content": m.content})
     history.append({"role": "user", "content": user_content})
@@ -46,13 +55,16 @@ async def stream_chat_completion(
         headers["x-api-key"] = provider.api_key
         headers["anthropic-version"] = "2023-06-01"
         url = build_provider_url(url, "/v1/messages")
-        payload = {
+        payload: dict = {
             "model": provider.model_name,
             "max_tokens": provider.max_tokens,
             "temperature": provider.temperature,
             "stream": True,
             "messages": history,
         }
+        # Anthropic uses a separate 'system' field
+        if system_prompt:
+            payload["system"] = system_prompt
         async for chunk in _stream_anthropic(url, headers, payload, provider.timeout_seconds):
             yield chunk
     else:

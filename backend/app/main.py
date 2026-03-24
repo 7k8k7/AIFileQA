@@ -44,7 +44,9 @@ async def health():
 from app.api.documents import router as documents_router
 from app.api.providers import router as providers_router
 from app.api.chat import router as chat_router
+from app.api.retrieval import router as retrieval_router
 
 app.include_router(documents_router)
 app.include_router(providers_router)
 app.include_router(chat_router)
+app.include_router(retrieval_router)

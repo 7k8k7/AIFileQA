@@ -7,6 +7,7 @@ from app.schemas.provider import (
     ProviderOut,
     mask_api_key,
 )
+from app.schemas.retrieval import RetrievalQuery, RetrievalChunkOut
 
 __all__ = [
     "PaginatedResponse",
@@ -19,4 +20,6 @@ __all__ = [
     "ProviderUpdate",
     "ProviderOut",
     "mask_api_key",
+    "RetrievalQuery",
+    "RetrievalChunkOut",
 ]

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # File storage
     upload_dir: str = "./uploads"
+    vector_store_dir: str = "./data/chroma"
     max_upload_size_mb: int = 50
 
     # Server
@@ -29,6 +30,14 @@ class Settings(BaseSettings):
     @property
     def upload_path(self) -> Path:
         p = Path(self.upload_dir)
+        if not p.is_absolute():
+            p = BASE_DIR / p
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def vector_store_path(self) -> Path:
+        p = Path(self.vector_store_dir)
         if not p.is_absolute():
             p = BASE_DIR / p
         p.mkdir(parents=True, exist_ok=True)

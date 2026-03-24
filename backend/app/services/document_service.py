@@ -1,5 +1,6 @@
 """Document CRUD + file upload service."""
 from pathlib import Path
+import logging
 
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,22 +9,9 @@ from app.core.config import settings
 from app.models.document import Document
 from app.schemas.document import DocumentOut
 from app.schemas.common import PaginatedResponse
+from app.services.vector_store_service import delete_document_chunks as delete_vector_chunks
 
-
-async def _promote_ready_documents(db: AsyncSession) -> None:
-    """Backfill legacy uploads to `可用` until the async parser exists."""
-    rows = (
-        await db.execute(
-            select(Document).where(
-                Document.status == "上传成功",
-                Document.error_message.is_(None),
-            )
-        )
-    ).scalars().all()
-    for row in rows:
-        row.status = "可用"
-    if rows:
-        await db.flush()
+logger = logging.getLogger(__name__)
 
 
 async def list_documents(
@@ -34,8 +22,6 @@ async def list_documents(
     page_size: int = 20,
 ) -> PaginatedResponse[DocumentOut]:
     """List documents with optional keyword filter + pagination."""
-    await _promote_ready_documents(db)
-
     base = select(Document)
     if keyword:
         base = base.where(Document.file_name.ilike(f"%{keyword}%"))
@@ -62,7 +48,6 @@ async def list_documents(
 
 
 async def get_document(db: AsyncSession, doc_id: str) -> Document | None:
-    await _promote_ready_documents(db)
     return (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
 
 
@@ -74,17 +59,16 @@ async def create_document(
     file_size: int,
     storage_path: str,
 ) -> Document:
-    """Insert a new document record.
+    """Insert a new document record with status '上传成功'.
 
-    The current backend does not run an async parser yet, so a successful upload
-    is made available immediately for chat usage.
+    After commit, the caller should trigger async parsing via parsing_task.trigger_parse().
     """
     doc = Document(
         file_name=file_name,
         file_ext=file_ext,
         file_size=file_size,
         storage_path=storage_path,
-        status="可用",
+        status="上传成功",
     )
     db.add(doc)
     await db.flush()
@@ -102,6 +86,11 @@ async def delete_document(db: AsyncSession, doc_id: str) -> bool:
     file_path = Path(doc.storage_path)
     if file_path.exists():
         file_path.unlink(missing_ok=True)
+
+    try:
+        delete_vector_chunks(doc.id)
+    except Exception as exc:
+        logger.warning("Failed to delete vector chunks for %s: %s", doc.id, str(exc)[:200])
 
     await db.delete(doc)
     await db.flush()

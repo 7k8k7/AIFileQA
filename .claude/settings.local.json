@@ -13,7 +13,17 @@
       "Bash(timeout 6 uvicorn app.main:app --host 127.0.0.1 --port 8000)",
       "Bash(python -c \"from app.main import app; print\\(''Import OK''\\); print\\(''Routes:''\\); [print\\(f''  {r.methods} {r.path}''\\) for r in app.routes]\")",
       "Bash(timeout 8 uvicorn app.main:app --host 0.0.0.0 --port 8000)",
-      "Bash(pnpm build:*)"
+      "Bash(pnpm build:*)",
+      "Bash(python -c \"import fitz; print\\(''pymupdf'', fitz.version\\)\")",
+      "Bash(python -c \"import docx; print\\(''python-docx OK''\\)\")",
+      "Bash(python -c \"from app.main import app; print\\(''Import OK''\\); [print\\(f''  {r.methods} {r.path}''\\) for r in app.routes]\")",
+      "Bash(python -c \":*)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(taskkill //F //IM python3.exe)",
+      "Bash(kill %1)",
+      "Bash(wait)",
+      "Bash(python -m compileall app/ -q)",
+      "Bash(python -c \"from app.main import app; print\\(''Import OK''\\); [print\\(f''  {r.methods} {r.path}''\\) for r in app.routes if hasattr\\(r, ''methods''\\)]\")"
     ]
   }
 }
