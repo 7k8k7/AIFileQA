@@ -5,7 +5,12 @@
       "Bash(curl -sL \"https://api.github.com/repos/vercel-labs/agent-skills/contents/skills/react-best-practices/references?ref=react-best-practices\")",
       "Bash(python -m json.tool)",
       "WebFetch(domain:docs.anthropic.com)",
-      "Bash(claude --version)"
+      "Bash(claude --version)",
+      "Bash(pip install:*)",
+      "Bash(alembic init:*)",
+      "Bash(alembic revision:*)",
+      "Bash(alembic upgrade:*)",
+      "Bash(timeout 6 uvicorn app.main:app --host 127.0.0.1 --port 8000)"
     ]
   }
 }
