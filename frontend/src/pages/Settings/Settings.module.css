@@ -172,6 +172,34 @@
   gap: 4px;
 }
 
+.capabilityPanel {
+  margin-bottom: var(--space-md);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(22, 119, 255, 0.14);
+  background: linear-gradient(180deg, rgba(22, 119, 255, 0.06), rgba(22, 119, 255, 0.02));
+}
+
+.capabilityHeader {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-xs);
+}
+
+.capabilityTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-xs);
+}
+
+.capabilityText {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
 /* ═══════ Form ═══════ */
 .formWrap {
   grid-column: 1 / -1;

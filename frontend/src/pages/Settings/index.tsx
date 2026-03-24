@@ -11,6 +11,7 @@ import {
   Tooltip,
   Spin,
   Switch,
+  Tag,
 } from 'antd';
 import {
   PlusOutlined,
@@ -49,6 +50,46 @@ const PROVIDER_COLORS: Record<ProviderType, string> = {
   claude: '#D97B00',
   openai_compatible: '#6C5CE7',
 };
+
+interface ProviderCapabilityCopy {
+  chatLabel: string;
+  embeddingLabel: string;
+  embeddingHint: string;
+  fallbackHint: string;
+  switchHint: string;
+}
+
+function getProviderCapabilityCopy(providerType: ProviderType, enableEmbedding: boolean): ProviderCapabilityCopy {
+  if (providerType === 'openai') {
+    return {
+      chatLabel: '支持聊天生成',
+      embeddingLabel: enableEmbedding ? '支持 Embedding 检索' : 'Embedding 已关闭',
+      embeddingHint: 'OpenAI 适合将聊天模型和 Embedding 模型分开配置。',
+      fallbackHint: enableEmbedding
+        ? '若 Embedding 调用失败，系统会自动退回关键词检索。'
+        : '当前已关闭 Embedding，问答时会直接使用关键词检索。',
+      switchHint: '开启后会优先用当前会话绑定的供应商做向量检索。',
+    };
+  }
+  if (providerType === 'claude') {
+    return {
+      chatLabel: '支持聊天生成',
+      embeddingLabel: '不支持 Embedding',
+      embeddingHint: 'Claude 当前不提供本项目使用的 Embedding 接口。',
+      fallbackHint: 'Claude 会始终退回关键词检索，但聊天回答仍然使用 Claude 模型。',
+      switchHint: 'Claude 当前固定使用关键词检索，因此这里不可开启。',
+    };
+  }
+  return {
+    chatLabel: '支持兼容聊天接口',
+    embeddingLabel: enableEmbedding ? '按兼容接口尝试 Embedding' : 'Embedding 已关闭',
+    embeddingHint: '只有你的兼容服务真的支持 /v1/embeddings 时，Embedding 才会生效。',
+    fallbackHint: enableEmbedding
+      ? '如果本地或兼容服务不支持 Embedding，系统会自动退回关键词检索。'
+      : '当前未启用 Embedding，问答时会直接使用关键词检索。',
+    switchHint: '适合本地模型；若服务不支持 Embedding，也不会阻塞问答。',
+  };
+}
 
 function maskApiKey(key: string): string {
   if (!key) return '';
@@ -118,6 +159,7 @@ function ProviderForm({
   const [form] = Form.useForm<ProviderFormValues>();
   const providerType = Form.useWatch('provider_type', form) ?? initial?.provider_type ?? 'openai';
   const enableEmbedding = Form.useWatch('enable_embedding', form) ?? initial?.enable_embedding ?? false;
+  const capabilityCopy = getProviderCapabilityCopy(providerType, enableEmbedding);
 
   useEffect(() => {
     form.resetFields();
@@ -171,11 +213,24 @@ function ProviderForm({
 
           <Form.Item
             name="model_name"
-            label="模型名称"
+            label="聊天模型"
             rules={[{ required: true, message: '请输入模型名称' }]}
+            extra="这里配置当前 provider 用于聊天生成的模型。"
           >
             <Input placeholder="gpt-4o" />
           </Form.Item>
+        </div>
+
+        <div className={styles.capabilityPanel}>
+          <div className={styles.capabilityHeader}>当前能力说明</div>
+          <div className={styles.capabilityTags}>
+            <Tag color="blue">{capabilityCopy.chatLabel}</Tag>
+            <Tag color={providerType === 'claude' ? 'orange' : enableEmbedding ? 'green' : 'default'}>
+              {capabilityCopy.embeddingLabel}
+            </Tag>
+          </div>
+          <div className={styles.capabilityText}>{capabilityCopy.embeddingHint}</div>
+          <div className={styles.capabilityText}>{capabilityCopy.fallbackHint}</div>
         </div>
 
         <Form.Item
@@ -201,7 +256,7 @@ function ProviderForm({
           extra={
             providerType === 'openai_compatible'
               ? 'OpenAI 兼容接口在连接本地模型时可留空。'
-              : '当前供应商必须填写 API Key。'
+              : '当前供应商必须填写 API Key，编辑已有 provider 时会回显已保存的 key。'
           }
         >
           <Input.Password
@@ -219,11 +274,7 @@ function ProviderForm({
             name="enable_embedding"
             label="启用 Embedding"
             valuePropName="checked"
-            extra={
-              providerType === 'claude'
-                ? 'Claude 当前不支持 Embedding，会自动退回关键词检索。'
-                : '启用后会优先按当前会话绑定的供应商生成或复用该供应商的向量。'
-            }
+            extra={capabilityCopy.switchHint}
           >
             <Switch
               checkedChildren="开启"
@@ -234,7 +285,7 @@ function ProviderForm({
 
           <Form.Item
             name="embedding_model"
-            label="Embedding Model"
+            label="Embedding 模型"
             rules={[
               {
                 validator: async (_, value: string | undefined) => {
@@ -246,8 +297,8 @@ function ProviderForm({
             ]}
             extra={
               providerType === 'openai_compatible'
-                ? '本地兼容服务若支持 /v1/embeddings，请填写实际可用的 embedding 模型名。'
-                : '聊天模型和 Embedding 模型建议分开配置。'
+                ? '本地兼容服务若支持 /v1/embeddings，请填写实际可用的 embedding 模型名；否则会自动退回关键词检索。'
+                : '建议和聊天模型分开配置，避免把聊天模型直接用于 Embedding。'
             }
           >
             <Input
@@ -319,6 +370,7 @@ function ProviderCard({
 }) {
   const color = PROVIDER_COLORS[provider.provider_type];
   const typeInfo = PROVIDER_TYPES.find((t) => t.value === provider.provider_type);
+  const capabilityCopy = getProviderCapabilityCopy(provider.provider_type, provider.enable_embedding);
 
   return (
     <div className={styles.providerCard}>
@@ -414,7 +466,13 @@ function ProviderCard({
           Key: {maskApiKey(provider.api_key)}
         </span>
         <span className={styles.detailItem}>
-          Embedding: {provider.enable_embedding ? provider.embedding_model : '已关闭'}
+          聊天: {provider.model_name}
+        </span>
+        <span className={styles.detailItem}>
+          Embedding: {provider.provider_type === 'claude' ? '不支持' : provider.enable_embedding ? provider.embedding_model : '已关闭'}
+        </span>
+        <span className={styles.detailItem}>
+          回退: {capabilityCopy.fallbackHint}
         </span>
         <span className={styles.detailItem}>
           T={provider.temperature} · {provider.max_tokens} tokens · {provider.timeout_seconds}s

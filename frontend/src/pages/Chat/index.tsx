@@ -47,6 +47,20 @@ function formatTime(iso: string): string {
   return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 }
 
+function getProviderRuntimeHint(provider?: ProviderConfig): string {
+  if (!provider) return '当前没有可用供应商。';
+  if (provider.provider_type === 'claude') {
+    return '当前会话使用 Claude 聊天模型，检索阶段会固定退回关键词检索。';
+  }
+  if (!provider.enable_embedding) {
+    return '当前会话已关闭 Embedding，系统会直接使用关键词检索。';
+  }
+  if (provider.provider_type === 'openai_compatible') {
+    return '当前会话会先尝试兼容接口的 Embedding；如果本地服务不支持，会自动退回关键词检索。';
+  }
+  return '当前会话会优先使用 Embedding 检索；如果向量不可用，会自动退回关键词检索。';
+}
+
 // ── New Session Dialog ──
 
 function NewSessionDialog({
@@ -192,6 +206,12 @@ function MessageBubble({
 
 function SourcesPanel({ sources }: { sources: SourcesData }) {
   const [expanded, setExpanded] = useState(false);
+  const retrievalLabel =
+    sources.retrieval_method === 'hybrid'
+      ? '混合检索'
+      : sources.retrieval_method === 'vector'
+        ? '向量检索'
+        : '关键词检索';
 
   if (sources.chunks.length === 0) {
     return (
@@ -208,9 +228,19 @@ function SourcesPanel({ sources }: { sources: SourcesData }) {
         <FileSearchOutlined />
         <span>
           基于 {sources.chunks.length} 个文档片段回答
-          {sources.retrieval_method === 'vector' ? '（向量检索）' : '（关键词检索）'}
+          {`（${retrievalLabel}）`}
         </span>
       </div>
+      {sources.retrieval_method === 'keyword' && (
+        <div className={styles.sourcesNotice}>
+          当前回答已退回关键词检索，通常是因为当前 provider 未启用 Embedding、该 provider 不支持 Embedding，或当前文档还没有可用向量。
+        </div>
+      )}
+      {sources.retrieval_method === 'hybrid' && (
+        <div className={styles.sourcesNotice}>
+          当前回答同时综合了向量检索和关键词检索结果，用来提高召回稳定性。
+        </div>
+      )}
       {expanded && (
         <div className={styles.sourcesList}>
           {sources.chunks.map((chunk, i) => (
@@ -451,6 +481,10 @@ export default function ChatPage() {
     if (currentProvider.provider_type === 'claude') return 'Anthropic Claude';
     return 'OpenAI 兼容';
   }, [currentProvider]);
+  const currentProviderRuntimeHint = useMemo(
+    () => getProviderRuntimeHint(currentProvider),
+    [currentProvider],
+  );
   const documentNameMap = useMemo(
     () => new Map((docsData?.items ?? []).map((doc) => [doc.id, doc.file_name])),
     [docsData],
@@ -576,6 +610,7 @@ export default function ChatPage() {
                     </Tag>
                   )}
                 </div>
+                <div className={styles.chatRuntimeHint}>{currentProviderRuntimeHint}</div>
               </div>
               <Button
                 type="text"
@@ -690,7 +725,15 @@ export default function ChatPage() {
         {currentProvider ? (
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="供应商">{currentProviderLabel}</Descriptions.Item>
-            <Descriptions.Item label="模型">{currentProvider.model_name}</Descriptions.Item>
+            <Descriptions.Item label="聊天模型">{currentProvider.model_name}</Descriptions.Item>
+            <Descriptions.Item label="Embedding 模型">
+              {currentProvider.provider_type === 'claude'
+                ? '不支持'
+                : currentProvider.enable_embedding
+                  ? currentProvider.embedding_model || '未填写'
+                  : '已关闭'}
+            </Descriptions.Item>
+            <Descriptions.Item label="检索策略提示">{currentProviderRuntimeHint}</Descriptions.Item>
             <Descriptions.Item label="Base URL">{currentProvider.base_url}</Descriptions.Item>
             <Descriptions.Item label="API Key">{currentProvider.api_key || '未设置'}</Descriptions.Item>
             <Descriptions.Item label="Temperature">{currentProvider.temperature}</Descriptions.Item>
