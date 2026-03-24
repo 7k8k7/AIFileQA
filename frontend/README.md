@@ -35,6 +35,29 @@ pnpm dev
 - 前端：`http://localhost:5173`
 - 后端开发服务建议启动在：`http://localhost:8000`
 
+## Docker 运行
+
+项目根目录已经提供整套容器配置：
+
+```bash
+docker compose up -d --build
+```
+
+启动后访问：
+- 前端：`http://localhost:8080`
+- 后端 API：`http://localhost:8000`
+
+说明：
+- 前端容器使用 `nginx` 提供静态资源
+- `nginx` 会把 `/api/*` 反向代理到后端容器，因此浏览器里仍然走同源 `/api`
+- SSE 流式接口同样通过这个反向代理工作
+
+停止命令：
+
+```bash
+docker compose down
+```
+
 ## 构建
 
 ```bash

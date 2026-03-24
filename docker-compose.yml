@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: docqa-backend:latest
+    environment:
+      APP_NAME: DocQA
+      DEBUG: "true"
+      DATABASE_URL: sqlite+aiosqlite:///./data/docqa.db
+      UPLOAD_DIR: ./uploads
+      VECTOR_STORE_DIR: ./data/chroma
+      MAX_UPLOAD_SIZE_MB: "50"
+      HOST: 0.0.0.0
+      PORT: "8000"
+    volumes:
+      - backend_data:/app/backend/data
+      - backend_uploads:/app/backend/uploads
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: docqa-frontend:latest
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  backend_data:
+  backend_uploads:

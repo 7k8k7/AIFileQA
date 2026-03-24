@@ -56,6 +56,28 @@ uvicorn app.main:app --reload --port 8000
 - API 文档：`http://localhost:8000/docs`
 - 健康检查：`http://localhost:8000/health`
 
+## Docker 运行
+
+项目根目录已经提供 `docker-compose.yml`，会同时启动前端和后端。
+
+```bash
+docker compose up -d --build
+```
+
+容器启动后可访问：
+- 前端：`http://localhost:8080`
+- 后端 API：`http://localhost:8000`
+- 后端文档：`http://localhost:8000/docs`
+
+说明：
+- 后端容器启动时会自动执行 `alembic upgrade head`
+- SQLite 数据和 ChromaDB 向量库保存在 Docker volume 中
+- 如需停止：
+
+```bash
+docker compose down
+```
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
