@@ -60,8 +60,19 @@ backend/
 │   │   ├── chat.py      # 会话 + 消息表
 │   │   └── provider.py  # LLM 供应商配置表
 │   ├── schemas/         # Pydantic 请求/响应模型
+│   │   ├── common.py    # PaginatedResponse 通用分页
+│   │   ├── document.py  # DocumentOut
+│   │   ├── chat.py      # SessionCreate/Out, MessageOut/Send
+│   │   └── provider.py  # ProviderCreate/Update/Out + mask_api_key
 │   ├── api/             # 路由端点
+│   │   ├── documents.py # /api/documents   CRUD + 上传
+│   │   ├── providers.py # /api/providers   CRUD + 测试连接
+│   │   └── chat.py      # /api/chat        会话 + 消息 + SSE 流式
 │   └── services/        # 业务逻辑
+│       ├── document_service.py  # 文档 CRUD + 文件存储
+│       ├── provider_service.py  # 供应商 CRUD + 连接测试
+│       ├── chat_service.py      # 会话/消息 CRUD
+│       └── llm_service.py       # LLM 流式调用 (OpenAI + Claude)
 ├── alembic/             # 数据库迁移
 ├── uploads/             # 上传文件存储
 ├── .env.example         # 环境变量模板
@@ -88,6 +99,45 @@ alembic upgrade head
 
 # 回退一步
 alembic downgrade -1
+```
+
+## API 端点
+
+### 文档管理 `/api/documents`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/documents` | 分页列表，支持 `keyword` / `page` / `page_size` |
+| GET | `/api/documents/{id}` | 单文档详情 |
+| POST | `/api/documents` | 上传文件（multipart, 50MB 限制, PDF/DOCX/TXT/MD） |
+| DELETE | `/api/documents/{id}` | 删除文档 + 磁盘文件 |
+
+### 供应商配置 `/api/providers`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/providers` | 供应商列表（API Key 脱敏返回） |
+| POST | `/api/providers` | 创建供应商（首个自动设为默认） |
+| PUT | `/api/providers/{id}` | 更新供应商 |
+| POST | `/api/providers/{id}/test` | 测试连接（OpenAI / Claude 双协议） |
+| POST | `/api/providers/{id}/set-default` | 设为默认供应商 |
+| DELETE | `/api/providers/{id}` | 删除（默认供应商禁止删除） |
+
+### 智能问答 `/api/chat`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/chat/sessions` | 会话列表（按更新时间倒序） |
+| POST | `/api/chat/sessions` | 创建会话（支持 all / single 范围） |
+| DELETE | `/api/chat/sessions/{id}` | 删除会话（级联删除消息） |
+| GET | `/api/chat/sessions/{id}/messages` | 消息历史 |
+| POST | `/api/chat/sessions/{id}/messages` | 发送消息 → SSE 流式响应 |
+
+SSE 事件格式：
+```
+data: {"type":"token","content":"你好"}
+data: {"type":"done","message_id":"m-xxxx"}
+data: {"type":"error","content":"错误信息"}
 ```
 
 ## 环境变量

@@ -40,4 +40,11 @@ async def health():
     return {"status": "ok", "app": settings.app_name}
 
 
-# ── API routers will be registered here in G2–G5 ──
+# ── API routers ──
+from app.api.documents import router as documents_router
+from app.api.providers import router as providers_router
+from app.api.chat import router as chat_router
+
+app.include_router(documents_router)
+app.include_router(providers_router)
+app.include_router(chat_router)
