@@ -1,73 +1,62 @@
-# React + TypeScript + Vite
+# DocQA Frontend — 智能文档问答助手
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+基于 RAG 的文档问答助手前端，支持文档上传、智能检索问答、多供应商 LLM 配置。
 
-Currently, two official plugins are available:
+## 技术栈
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| 层 | 技术 |
+|---|------|
+| 框架 | React 19 + TypeScript |
+| 构建 | Vite 8 |
+| UI 组件 | Ant Design v5 (zh_CN) |
+| 服务端状态 | TanStack Query (React Query) |
+| UI 状态 | Zustand |
+| HTTP | Axios |
+| 路由 | React Router v7 |
 
-## React Compiler
+## 目录结构
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+├── main.tsx              # 入口：StrictMode + ConfigProvider + QueryClientProvider
+├── App.tsx               # 路由：/ → /documents, /chat, /settings
+├── global.css            # CSS 变量 (DESIGN.md tokens) + Reset + 暗色模式
+├── theme/
+│   └── tokens.ts         # antd ThemeConfig + CSS 变量定义
+├── types/
+│   └── index.ts          # Document, ChatSession, ChatMessage, ProviderConfig, SSE
+├── layouts/
+│   ├── AppLayout.tsx      # 毛玻璃顶部导航 + Outlet
+│   └── AppLayout.module.css
+├── pages/
+│   ├── Documents/         # 文档管理（上传、列表、搜索、删除）
+│   ├── Chat/              # 智能问答（会话管理、SSE 流式对话）
+│   └── Settings/          # 系统设置（LLM 供应商配置）
+├── components/            # 公共组件
+├── hooks/                 # 自定义 Hooks
+├── services/              # API 请求层
+└── stores/                # Zustand stores
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## 启动
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+pnpm install
+pnpm dev             # http://localhost:5173
 ```
+
+## 构建
+
+```bash
+pnpm build           # 输出到 dist/
+pnpm preview         # 预览生产构建
+```
+
+## 设计系统
+
+所有视觉规范定义在项目根目录 `DESIGN.md`，包括：
+- 色彩系统（克制策略：一个主色 + 中性灰阶）
+- 字体（Outfit 标题 / Noto Serif SC 装饰 / 系统字体 UI / JetBrains Mono 代码）
+- 8px 间距网格
+- 5 级阴影 + 光晕变体
+- 毛玻璃导航栏 + 滚动渐入动画
