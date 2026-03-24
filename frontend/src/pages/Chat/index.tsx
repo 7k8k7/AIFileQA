@@ -95,7 +95,7 @@ function NewSessionDialog({
             <label className={styles.dialogLabel}>选择文档</label>
             {availableDocs.length === 0 ? (
               <div className={styles.noDocsHint}>
-                <InboxOutlined /> 暂无可用文档，请先上传并等待解析完成
+                <InboxOutlined /> 暂无可用文档，请先上传文档
               </div>
             ) : (
               <Select
@@ -238,6 +238,7 @@ export default function ChatPage() {
       },
       onError: (err) => {
         stopStreaming();
+        invalidateMessages(activeSessionId);
         msgApi.error(`发送失败：${err.message}`);
       },
     });

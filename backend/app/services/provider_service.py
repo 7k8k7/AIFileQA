@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.provider import ProviderConfig
 from app.schemas.provider import ProviderCreate, ProviderUpdate, ProviderOut, mask_api_key
+from app.services.provider_url import build_provider_url, normalize_provider_base_url
 
 
 async def list_providers(db: AsyncSession) -> list[ProviderOut]:
@@ -33,7 +34,7 @@ async def create_provider(db: AsyncSession, data: ProviderCreate) -> ProviderCon
 
     provider = ProviderConfig(
         provider_type=data.provider_type,
-        base_url=data.base_url,
+        base_url=normalize_provider_base_url(data.base_url),
         model_name=data.model_name,
         api_key=data.api_key,
         temperature=data.temperature,
@@ -61,6 +62,8 @@ async def update_provider(
 
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
+        if key == "base_url" and value is not None:
+            value = normalize_provider_base_url(value)
         setattr(provider, key, value)
 
     await db.flush()
@@ -96,16 +99,17 @@ async def test_connection(db: AsyncSession, provider_id: str) -> dict:
         return {"success": False, "message": "供应商不存在"}
 
     # Build test request based on provider type
-    url = provider.base_url.rstrip("/")
+    url = normalize_provider_base_url(provider.base_url)
     headers: dict[str, str] = {}
-    if provider.api_key:
-        if provider.provider_type == "claude":
+    if provider.provider_type == "claude":
+        url = build_provider_url(url, "/v1/messages")
+        headers["anthropic-version"] = "2023-06-01"
+        if provider.api_key:
             headers["x-api-key"] = provider.api_key
-            headers["anthropic-version"] = "2023-06-01"
-            url += "/v1/messages"
-        else:
+    else:
+        url = build_provider_url(url, "/v1/models")
+        if provider.api_key:
             headers["Authorization"] = f"Bearer {provider.api_key}"
-            url += "/v1/models"
 
     try:
         async with httpx.AsyncClient(timeout=provider.timeout_seconds) as client:

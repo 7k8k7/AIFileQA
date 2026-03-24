@@ -74,8 +74,8 @@ function ProviderForm({
   const [form] = Form.useForm<ProviderFormValues>();
 
   const defaultUrls: Record<ProviderType, string> = {
-    openai: 'https://api.openai.com/v1',
-    claude: 'https://api.anthropic.com/v1',
+    openai: 'https://api.openai.com',
+    claude: 'https://api.anthropic.com',
     openai_compatible: '',
   };
 
@@ -97,7 +97,7 @@ function ProviderForm({
               }
             : {
                 provider_type: 'openai',
-                base_url: 'https://api.openai.com/v1',
+                base_url: 'https://api.openai.com',
                 model_name: 'gpt-4o',
                 temperature: 0.7,
                 max_tokens: 4096,
@@ -138,7 +138,7 @@ function ProviderForm({
           label="Base URL"
           rules={[{ required: true, message: '请输入 Base URL' }]}
         >
-          <Input placeholder="https://api.openai.com/v1" />
+          <Input placeholder="https://api.openai.com" />
         </Form.Item>
 
         <Form.Item

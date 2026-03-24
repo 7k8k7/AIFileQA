@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.provider import ProviderConfig
 from app.models.chat import ChatMessage
+from app.services.provider_url import build_provider_url, normalize_provider_base_url
 
 
 async def get_default_provider(db: AsyncSession) -> ProviderConfig | None:
@@ -37,14 +38,14 @@ async def stream_chat_completion(
         history.append({"role": m.role, "content": m.content})
     history.append({"role": "user", "content": user_content})
 
-    url = provider.base_url.rstrip("/")
+    url = normalize_provider_base_url(provider.base_url)
     headers: dict[str, str] = {"Content-Type": "application/json"}
 
     if provider.provider_type == "claude":
         # ── Anthropic Messages API ──
         headers["x-api-key"] = provider.api_key
         headers["anthropic-version"] = "2023-06-01"
-        url += "/v1/messages"
+        url = build_provider_url(url, "/v1/messages")
         payload = {
             "model": provider.model_name,
             "max_tokens": provider.max_tokens,
@@ -58,7 +59,7 @@ async def stream_chat_completion(
         # ── OpenAI-compatible Chat Completions ──
         if provider.api_key:
             headers["Authorization"] = f"Bearer {provider.api_key}"
-        url += "/v1/chat/completions"
+        url = build_provider_url(url, "/v1/chat/completions")
         payload = {
             "model": provider.model_name,
             "max_tokens": provider.max_tokens,

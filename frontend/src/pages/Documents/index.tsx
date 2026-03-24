@@ -102,7 +102,7 @@ export default function DocumentsPage() {
       }
       uploadMutation.mutate(file, {
         onSuccess: () => {
-          msg.success(`${file.name} 上传成功，正在解析...`);
+          msg.success(`${file.name} 上传成功，可立即用于问答`);
           options.onSuccess?.({});
         },
         onError: (err) => {

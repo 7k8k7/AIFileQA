@@ -12,7 +12,8 @@
       "Bash(alembic upgrade:*)",
       "Bash(timeout 6 uvicorn app.main:app --host 127.0.0.1 --port 8000)",
       "Bash(python -c \"from app.main import app; print\\(''Import OK''\\); print\\(''Routes:''\\); [print\\(f''  {r.methods} {r.path}''\\) for r in app.routes]\")",
-      "Bash(timeout 8 uvicorn app.main:app --host 0.0.0.0 --port 8000)"
+      "Bash(timeout 8 uvicorn app.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(pnpm build:*)"
     ]
   }
 }

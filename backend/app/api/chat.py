@@ -85,10 +85,11 @@ async def send_message(
     if not provider:
         raise HTTPException(status_code=400, detail="请先在设置中配置模型供应商")
 
-    # Persist user message
-    await save_user_message(db, session_id, body.content)
+    # Persist user message immediately so the frontend can refresh and render it.
+    user_message = await save_user_message(db, session_id, body.content)
+    await db.commit()
 
-    # Fetch conversation history
+    # Fetch conversation history after the user message is committed.
     history = await list_messages(db, session_id)
     # Exclude the user message we just added (it's already in history now)
     # We pass history (excluding last) + current content separately
@@ -128,5 +129,6 @@ async def send_message(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "X-User-Message-Id": user_message.id,
         },
     )

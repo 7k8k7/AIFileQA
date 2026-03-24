@@ -1,6 +1,4 @@
 """Document CRUD + file upload service."""
-
-import shutil
 from pathlib import Path
 
 from sqlalchemy import select, func
@@ -12,6 +10,22 @@ from app.schemas.document import DocumentOut
 from app.schemas.common import PaginatedResponse
 
 
+async def _promote_ready_documents(db: AsyncSession) -> None:
+    """Backfill legacy uploads to `可用` until the async parser exists."""
+    rows = (
+        await db.execute(
+            select(Document).where(
+                Document.status == "上传成功",
+                Document.error_message.is_(None),
+            )
+        )
+    ).scalars().all()
+    for row in rows:
+        row.status = "可用"
+    if rows:
+        await db.flush()
+
+
 async def list_documents(
     db: AsyncSession,
     *,
@@ -20,6 +34,8 @@ async def list_documents(
     page_size: int = 20,
 ) -> PaginatedResponse[DocumentOut]:
     """List documents with optional keyword filter + pagination."""
+    await _promote_ready_documents(db)
+
     base = select(Document)
     if keyword:
         base = base.where(Document.file_name.ilike(f"%{keyword}%"))
@@ -46,6 +62,7 @@ async def list_documents(
 
 
 async def get_document(db: AsyncSession, doc_id: str) -> Document | None:
+    await _promote_ready_documents(db)
     return (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
 
 
@@ -57,12 +74,17 @@ async def create_document(
     file_size: int,
     storage_path: str,
 ) -> Document:
-    """Insert a new document record with status '上传成功'."""
+    """Insert a new document record.
+
+    The current backend does not run an async parser yet, so a successful upload
+    is made available immediately for chat usage.
+    """
     doc = Document(
         file_name=file_name,
         file_ext=file_ext,
         file_size=file_size,
         storage_path=storage_path,
+        status="可用",
     )
     db.add(doc)
     await db.flush()
