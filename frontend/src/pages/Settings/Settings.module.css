@@ -5,7 +5,8 @@
 }
 
 .content {
-  max-width: 720px;
+  max-width: 960px;
+  margin: 0 auto;
 }
 
 /* ═══════ Header ═══════ */
@@ -34,18 +35,21 @@
 
 /* ═══════ Provider List ═══════ */
 .providerList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: var(--space-md);
 }
 
 /* ── Provider Card ── */
 .providerCard {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
   background: var(--color-surface);
   transition: all var(--duration-fast) var(--ease-out);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .providerCard:hover {
@@ -164,12 +168,13 @@
 
 /* ═══════ Form ═══════ */
 .formWrap {
+  grid-column: 1 / -1;
   border: 1px solid var(--color-primary-20);
   border-radius: var(--radius-md);
   padding: var(--space-lg);
   background: var(--color-surface);
   box-shadow: var(--shadow-glow);
-  margin-bottom: var(--space-sm);
+  margin-bottom: var(--space-xs);
 }
 
 .formGrid {
@@ -257,5 +262,9 @@
   .providerDetails {
     flex-direction: column;
     gap: var(--space-xs);
+  }
+
+  .providerList {
+    grid-template-columns: 1fr;
   }
 }
