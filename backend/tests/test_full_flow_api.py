@@ -133,6 +133,7 @@ def test_full_flow_upload_parse_chat_sse(
             body = "".join(response.iter_text())
 
         assert '"type":"token"' in body
+        assert '"type":"sources"' in body or '"type": "sources"' in body
         assert '"type": "done"' in body or '"type":"done"' in body
         assert '"type":"error"' not in body
 
@@ -145,6 +146,10 @@ def test_full_flow_upload_parse_chat_sse(
         messages = messages_resp.json()
         assert [item["role"] for item in messages] == ["user", "assistant"]
         assert messages[1]["content"] == "基于文档，答案是 alpha。"
+        assert messages[1]["sources"]["retrieval_method"] in {"keyword", "vector"}
+        assert len(messages[1]["sources"]["chunks"]) == 1
+        assert messages[1]["sources"]["chunks"][0]["document_name"] == "sample.txt"
+        assert messages[1]["sources"]["chunks"][0]["content"] == "alpha policy and onboarding notes"
 
         sessions_resp = client.get("/api/sessions")
         assert sessions_resp.status_code == 200

@@ -1,5 +1,6 @@
 """Chat session / message CRUD service."""
 
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -76,9 +77,19 @@ async def save_user_message(db: AsyncSession, session_id: str, content: str) -> 
     return msg
 
 
-async def save_assistant_message(db: AsyncSession, session_id: str, content: str) -> ChatMessage:
+async def save_assistant_message(
+    db: AsyncSession,
+    session_id: str,
+    content: str,
+    sources: dict | None = None,
+) -> ChatMessage:
     """Persist the completed assistant response."""
-    msg = ChatMessage(session_id=session_id, role="assistant", content=content)
+    msg = ChatMessage(
+        session_id=session_id,
+        role="assistant",
+        content=content,
+        sources_json=json.dumps(sources, ensure_ascii=False) if sources else None,
+    )
     db.add(msg)
 
     session = await get_session(db, session_id)

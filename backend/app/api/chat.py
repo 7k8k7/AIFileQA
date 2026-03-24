@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db, async_session
-from app.schemas.chat import SessionCreate, SessionOut, MessageOut, MessageSend
+from app.schemas.chat import SessionCreate, SessionOut, MessageOut, MessageSend, message_to_out
 from app.services.chat_service import (
     list_sessions,
     get_session,
@@ -64,7 +64,7 @@ async def get_messages(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
     msgs = await list_messages(db, session_id)
-    return [MessageOut.model_validate(m) for m in msgs]
+    return [message_to_out(m) for m in msgs]
 
 
 @router.post("/api/chat/sessions/{session_id}/messages")
@@ -96,7 +96,7 @@ async def send_message(
     await db.commit()
 
     # Build RAG system prompt with document context
-    system_prompt = await build_rag_prompt(
+    rag_result = await build_rag_prompt(
         db,
         body.content,
         scope_type=session.scope_type,
@@ -109,10 +109,27 @@ async def send_message(
     prior = history[:-1]
 
     async def event_generator():
+        # Emit sources event before token stream
+        sources_event = {
+            "type": "sources",
+            "retrieval_method": rag_result.retrieval_method,
+            "chunks": [
+                {
+                    "document_name": c.document_name,
+                    "chunk_index": c.chunk_index,
+                    "content": c.content[:200],
+                    "page_no": c.page_no,
+                    "score": c.score,
+                }
+                for c in rag_result.chunks
+            ],
+        }
+        yield f"data: {json.dumps(sources_event, ensure_ascii=False)}\n\n"
+
         full_content = ""
         try:
             async for sse_line in stream_chat_completion(
-                provider, prior, body.content, system_prompt=system_prompt
+                provider, prior, body.content, system_prompt=rag_result.system_prompt
             ):
                 # Extract content for persistence
                 if sse_line.startswith("data: "):
@@ -131,7 +148,15 @@ async def send_message(
         # Persist assistant message after streaming is done
         async with async_session() as persist_db:
             try:
-                assistant_msg = await save_assistant_message(persist_db, session_id, full_content)
+                assistant_msg = await save_assistant_message(
+                    persist_db,
+                    session_id,
+                    full_content,
+                    sources={
+                        "retrieval_method": rag_result.retrieval_method,
+                        "chunks": sources_event["chunks"],
+                    },
+                )
                 await persist_db.commit()
                 done_event = f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg.id}, ensure_ascii=False)}\n\n"
                 yield done_event

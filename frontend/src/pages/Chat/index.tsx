@@ -11,6 +11,8 @@ import {
   RobotOutlined,
   ExclamationCircleOutlined,
   InboxOutlined,
+  RightOutlined,
+  FileSearchOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
@@ -24,7 +26,8 @@ import {
 } from '../../hooks';
 import { sendMessage } from '../../services';
 import { useChatStore } from '../../stores';
-import type { ScopeType } from '../../types';
+import type { SourcesData } from '../../stores/chatStore';
+import type { ChatMessage, ScopeType } from '../../types';
 import styles from './Chat.module.css';
 
 // ── Helpers ──
@@ -122,7 +125,7 @@ function MessageBubble({
   msg,
   isStreaming,
 }: {
-  msg: { role: 'user' | 'assistant'; content: string };
+  msg: Pick<ChatMessage, 'role' | 'content'>;
   isStreaming?: boolean;
 }) {
   const isUser = msg.role === 'user';
@@ -148,6 +151,55 @@ function MessageBubble({
   );
 }
 
+// ── Sources Panel ──
+
+function SourcesPanel({ sources }: { sources: SourcesData }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (sources.chunks.length === 0) {
+    return (
+      <div className={styles.sourcesEmpty}>
+        <FileSearchOutlined /> 未检索到相关文档内容
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.sourcesPanel}>
+      <div className={styles.sourcesSummary} onClick={() => setExpanded(!expanded)}>
+        <RightOutlined className={`${styles.sourcesArrow} ${expanded ? styles.sourcesArrowOpen : ''}`} />
+        <FileSearchOutlined />
+        <span>
+          基于 {sources.chunks.length} 个文档片段回答
+          {sources.retrieval_method === 'vector' ? '（向量检索）' : '（关键词检索）'}
+        </span>
+      </div>
+      {expanded && (
+        <div className={styles.sourcesList}>
+          {sources.chunks.map((chunk, i) => (
+            <div key={i} className={styles.sourceItem}>
+              <div className={styles.sourceItemHeader}>
+                <span className={styles.sourceDocName}>{chunk.document_name}</span>
+                {chunk.page_no != null && (
+                  <Tag color="default" style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
+                    第{chunk.page_no}页
+                  </Tag>
+                )}
+                {chunk.score != null && (
+                  <Tag color="blue" style={{ fontSize: 11, lineHeight: '18px', margin: 0 }}>
+                    {chunk.score.toFixed(2)}
+                  </Tag>
+                )}
+              </div>
+              <div className={styles.sourceContent}>{chunk.content}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Component ──
 
 export default function ChatPage() {
@@ -162,10 +214,12 @@ export default function ChatPage() {
     activeSessionId,
     streamingContent,
     isStreaming,
+    streamingSources,
     setActiveSession,
     appendStreamToken,
     startStreaming,
     stopStreaming,
+    setStreamingSources,
   } = useChatStore();
 
   // Queries
@@ -241,6 +295,7 @@ export default function ChatPage() {
         invalidateMessages(activeSessionId);
         msgApi.error(`发送失败：${err.message}`);
       },
+      onSources: (data) => setStreamingSources(data),
     });
 
     startStreaming(abort);
@@ -254,6 +309,7 @@ export default function ChatPage() {
     startStreaming,
     stopStreaming,
     invalidateMessages,
+    setStreamingSources,
     msgApi,
   ]);
 
@@ -371,7 +427,12 @@ export default function ChatPage() {
               ) : (
                 <>
                   {messages?.map((m) => (
-                    <MessageBubble key={m.id} msg={m} />
+                    <div key={m.id}>
+                      <MessageBubble msg={m} />
+                      {m.role === 'assistant' && m.sources && (
+                        <SourcesPanel sources={m.sources} />
+                      )}
+                    </div>
                   ))}
                   {isStreaming && streamingContent && (
                     <MessageBubble
@@ -379,6 +440,7 @@ export default function ChatPage() {
                       isStreaming
                     />
                   )}
+                  {isStreaming && streamingSources && <SourcesPanel sources={streamingSources} />}
                 </>
               )}
               <div ref={messagesEndRef} />

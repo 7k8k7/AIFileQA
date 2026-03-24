@@ -29,6 +29,7 @@ export function sseStream(
     onToken: (content: string) => void;
     onDone: (messageId: string) => void;
     onError: (error: Error) => void;
+    onSources?: (data: { retrieval_method: string; chunks: import('../types').SourceChunk[] }) => void;
   },
 ): () => void {
   const baseURL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL as string | undefined);
@@ -79,6 +80,8 @@ export function sseStream(
               callbacks.onDone(data.message_id);
             } else if (data.type === 'error') {
               callbacks.onError(new Error(data.content));
+            } else if (data.type === 'sources' && callbacks.onSources) {
+              callbacks.onSources(data);
             }
           } catch {
             // ignore malformed SSE lines

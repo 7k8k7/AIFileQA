@@ -31,6 +31,14 @@ class RetrievedChunk:
     score: float | None = None
 
 
+@dataclass(slots=True)
+class RAGResult:
+    """Structured result from RAG retrieval — carries both the prompt and metadata."""
+    system_prompt: str
+    chunks: list[RetrievedChunk]
+    retrieval_method: str  # "vector" | "keyword" | "none"
+
+
 async def retrieve_chunks(
     db: AsyncSession,
     query: str,
@@ -38,11 +46,18 @@ async def retrieve_chunks(
     scope_type: str = "all",
     document_id: str | None = None,
     top_k: int = DEFAULT_TOP_K,
-) -> list[RetrievedChunk]:
-    """Retrieve the most relevant chunks for a query."""
+) -> tuple[list[RetrievedChunk], str]:
+    """Retrieve the most relevant chunks for a query.
+
+    Returns (chunks, retrieval_method) where retrieval_method is
+    "vector", "keyword", or "none".
+    """
     doc_ids = await _get_candidate_doc_ids(db, scope_type, document_id)
     if not doc_ids:
-        return []
+        logger.info("RAG: no candidate docs (scope=%s, doc_id=%s)", scope_type, document_id)
+        return [], "none"
+
+    logger.info("RAG: %d candidate doc(s) for scope=%s", len(doc_ids), scope_type)
 
     provider = (await db.execute(
         select(ProviderConfig).where(ProviderConfig.is_default == True)  # noqa: E712
@@ -58,12 +73,16 @@ async def retrieve_chunks(
                 top_k=top_k,
             )
             if vector_rows:
-                return vector_rows
+                logger.info("RAG: vector retrieval returned %d chunk(s)", len(vector_rows))
+                return vector_rows, "vector"
         except Exception as e:
             logger.warning("Vector retrieval failed, falling back to keyword: %s", str(e)[:200])
 
     keyword_chunks = await _load_candidate_chunks(db, doc_ids)
-    return await _keyword_retrieve(db, query, keyword_chunks, top_k)
+    results = await _keyword_retrieve(db, query, keyword_chunks, top_k)
+    method = "keyword" if results else "none"
+    logger.info("RAG: keyword retrieval returned %d chunk(s)", len(results))
+    return results, method
 
 
 async def retrieve_chunk_hits(
@@ -74,13 +93,14 @@ async def retrieve_chunk_hits(
     document_id: str | None = None,
     top_k: int = DEFAULT_TOP_K,
 ) -> list[RetrievedChunk]:
-    return await retrieve_chunks(
+    chunks, _ = await retrieve_chunks(
         db,
         query,
         scope_type=scope_type,
         document_id=document_id,
         top_k=top_k,
     )
+    return chunks
 
 
 async def build_rag_prompt(
@@ -89,9 +109,9 @@ async def build_rag_prompt(
     *,
     scope_type: str = "all",
     document_id: str | None = None,
-) -> str:
+) -> RAGResult:
     """Build a RAG-augmented system prompt with retrieved context."""
-    chunks = await retrieve_chunks(
+    chunks, method = await retrieve_chunks(
         db,
         query,
         scope_type=scope_type,
@@ -99,7 +119,12 @@ async def build_rag_prompt(
     )
 
     if not chunks:
-        return _NO_CONTEXT_PROMPT
+        logger.info("RAG: no chunks retrieved — using NO_CONTEXT_PROMPT")
+        return RAGResult(
+            system_prompt=_NO_CONTEXT_PROMPT,
+            chunks=[],
+            retrieval_method="none",
+        )
 
     context_parts: list[str] = []
     for i, chunk in enumerate(chunks):
@@ -109,7 +134,15 @@ async def build_rag_prompt(
         )
 
     context_block = "\n\n---\n\n".join(context_parts)
-    return _RAG_SYSTEM_PROMPT.format(context=context_block)
+    prompt = _RAG_SYSTEM_PROMPT.format(context=context_block)
+    logger.info("RAG: built prompt with %d chunk(s), method=%s, context_len=%d",
+                len(chunks), method, len(context_block))
+
+    return RAGResult(
+        system_prompt=prompt,
+        chunks=chunks,
+        retrieval_method=method,
+    )
 
 
 async def _vector_retrieve(

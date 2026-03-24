@@ -23,6 +23,7 @@ from app.services.vector_store_service import (
 logger = logging.getLogger(__name__)
 
 _executor: ProcessPoolExecutor | None = None
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _get_executor() -> ProcessPoolExecutor:
@@ -35,7 +36,9 @@ def _get_executor() -> ProcessPoolExecutor:
 
 async def trigger_parse(doc_id: str, file_path: str, file_ext: str) -> None:
     """Schedule document parsing as a background task."""
-    asyncio.create_task(_run_parse(doc_id, file_path, file_ext))
+    task = asyncio.create_task(_run_parse(doc_id, file_path, file_ext))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 
 async def _run_parse(doc_id: str, file_path: str, file_ext: str) -> None:

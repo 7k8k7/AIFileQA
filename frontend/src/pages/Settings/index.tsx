@@ -48,6 +48,12 @@ const PROVIDER_COLORS: Record<ProviderType, string> = {
   openai_compatible: '#6C5CE7',
 };
 
+function maskApiKey(key: string): string {
+  if (!key) return '';
+  if (key.length <= 8) return '****';
+  return `${key.slice(0, 3)}****${key.slice(-4)}`;
+}
+
 // ── Provider Form ──
 
 interface ProviderFormValues {
@@ -90,7 +96,7 @@ function ProviderForm({
                 provider_type: initial.provider_type,
                 base_url: initial.base_url,
                 model_name: initial.model_name,
-                api_key: '',
+                api_key: initial.api_key,
                 temperature: initial.temperature,
                 max_tokens: initial.max_tokens,
                 timeout_seconds: initial.timeout_seconds,
@@ -145,7 +151,7 @@ function ProviderForm({
           name="api_key"
           label="API Key"
           rules={[]}
-          extra={initial ? '留空则保持原有 Key 不变' : '本地部署模型（如 Ollama）可留空'}
+          extra="本地部署模型（如 Ollama）可留空"
         >
           <Input.Password placeholder="sk-...（本地模型可留空）" visibilityToggle />
         </Form.Item>
@@ -298,7 +304,7 @@ function ProviderCard({
           <LinkOutlined /> {provider.base_url}
         </span>
         <span className={styles.detailItem}>
-          Key: {provider.api_key}
+          Key: {maskApiKey(provider.api_key)}
         </span>
         <span className={styles.detailItem}>
           T={provider.temperature} · {provider.max_tokens} tokens · {provider.timeout_seconds}s
@@ -354,7 +360,6 @@ export default function SettingsPage() {
   const handleEdit = useCallback(
     (id: string, values: ProviderFormValues) => {
       const data: Record<string, unknown> = { ...values };
-      if (!data.api_key) delete data.api_key; // keep original if empty
       updateMutation.mutate(
         { id, data },
         {

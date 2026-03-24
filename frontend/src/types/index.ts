@@ -28,11 +28,17 @@ export interface ChatSession {
 
 export type MessageRole = 'user' | 'assistant';
 
+export interface MessageSources {
+  retrieval_method: string;
+  chunks: SourceChunk[];
+}
+
 export interface ChatMessage {
   id: string;
   session_id: string;
   role: MessageRole;
   content: string;
+  sources?: MessageSources | null;
   created_at: string;
 }
 
@@ -66,7 +72,21 @@ export interface SSEDoneEvent {
   message_id: string;
 }
 
-export type SSEEvent = SSETokenEvent | SSEDoneEvent;
+export interface SourceChunk {
+  document_name: string;
+  chunk_index: number;
+  content: string;
+  page_no: number | null;
+  score: number | null;
+}
+
+export interface SSESourcesEvent {
+  type: 'sources';
+  retrieval_method: string;
+  chunks: SourceChunk[];
+}
+
+export type SSEEvent = SSETokenEvent | SSEDoneEvent | SSESourcesEvent;
 
 // ── API ──
 

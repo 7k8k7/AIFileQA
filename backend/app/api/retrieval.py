@@ -18,7 +18,7 @@ async def search_chunks(
     if data.scope_type == "single" and not data.document_id:
         raise HTTPException(status_code=400, detail="single 范围必须提供 document_id")
 
-    rows = await retrieve_chunks(
+    rows, _ = await retrieve_chunks(
         db,
         data.query,
         scope_type=data.scope_type,

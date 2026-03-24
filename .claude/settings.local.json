@@ -23,7 +23,16 @@
       "Bash(kill %1)",
       "Bash(wait)",
       "Bash(python -m compileall app/ -q)",
-      "Bash(python -c \"from app.main import app; print\\(''Import OK''\\); [print\\(f''  {r.methods} {r.path}''\\) for r in app.routes if hasattr\\(r, ''methods''\\)]\")"
+      "Bash(python -c \"from app.main import app; print\\(''Import OK''\\); [print\\(f''  {r.methods} {r.path}''\\) for r in app.routes if hasattr\\(r, ''methods''\\)]\")",
+      "Bash(find d:/documentD/works/AgenticEngineering/FileManagement/frontend/src -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
+      "Bash(python -c \"from app.services.retrieval_service import RAGResult, RetrievedChunk, build_rag_prompt, retrieve_chunks; print\\(''retrieval_service OK''\\)\")",
+      "Bash(python -c \"from app.api.chat import router; print\\(''chat API OK''\\)\")",
+      "Bash(python -c \"from app.services.parsing_task import trigger_parse, _background_tasks; print\\(''parsing_task OK, background_tasks type:'', type\\(_background_tasks\\)\\)\")",
+      "Bash(find d:documentDworksAgenticEngineeringFileManagementfrontendsrc -name *hook* -o -name *provider*)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
+      "Bash(find d:documentDworksAgenticEngineeringFileManagementfrontendsrc -name types* -o -name index.ts)",
+      "Bash(find d:documentDworksAgenticEngineeringFileManagement -name *.md -type f)",
+      "Bash(python -c \"from app.api.providers import router; print\\(''providers API OK''\\)\")"
     ]
   }
 }

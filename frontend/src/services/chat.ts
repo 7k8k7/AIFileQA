@@ -1,4 +1,4 @@
-import type { ChatSession, ChatMessage, ScopeType } from '../types';
+import type { ChatSession, ChatMessage, ScopeType, SourceChunk } from '../types';
 import api from './api';
 import { sseStream } from './api';
 
@@ -39,6 +39,7 @@ export function sendMessage(
     onToken: (token: string) => void;
     onDone: (messageId: string) => void;
     onError: (error: Error) => void;
+    onSources?: (data: { retrieval_method: string; chunks: SourceChunk[] }) => void;
   },
 ): () => void {
   return sseStream(

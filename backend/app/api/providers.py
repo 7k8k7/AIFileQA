@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.provider import ProviderCreate, ProviderUpdate, ProviderOut, mask_api_key
+from app.schemas.provider import ProviderCreate, ProviderUpdate, ProviderOut
 from app.services.provider_service import (
     list_providers,
     get_provider,
@@ -29,9 +29,7 @@ async def add_provider(
     db: AsyncSession = Depends(get_db),
 ):
     provider = await create_provider(db, data)
-    out = ProviderOut.model_validate(provider)
-    out.api_key = mask_api_key(provider.api_key)
-    return out
+    return ProviderOut.model_validate(provider)
 
 
 @router.put("/{provider_id}", response_model=ProviderOut)
@@ -43,9 +41,7 @@ async def modify_provider(
     provider = await update_provider(db, provider_id, data)
     if not provider:
         raise HTTPException(status_code=404, detail="供应商不存在")
-    out = ProviderOut.model_validate(provider)
-    out.api_key = mask_api_key(provider.api_key)
-    return out
+    return ProviderOut.model_validate(provider)
 
 
 @router.post("/{provider_id}/test")
