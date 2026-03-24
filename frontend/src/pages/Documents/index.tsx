@@ -67,11 +67,11 @@ function FileIcon({ ext }: { ext: string }) {
   }
 }
 
-const STATUS_MAP: Record<DocumentStatus, { color: string; label: string }> = {
-  '上传成功': { color: 'default', label: '上传成功' },
-  '解析中': { color: 'processing', label: '解析中' },
-  '可用': { color: 'success', label: '已完成' },
-  '解析失败': { color: 'error', label: '解析失败' },
+const STATUS_MAP: Record<DocumentStatus, { color: string; label: string; hint: string }> = {
+  '上传中': { color: 'default', label: '上传中', hint: '文件已接收，正在进入解析队列。' },
+  '解析中': { color: 'processing', label: '解析中', hint: '系统正在提取文本和建立检索索引。' },
+  '可用': { color: 'success', label: '可用', hint: '文档已处理完成，可以用于问答。' },
+  '失败': { color: 'error', label: '失败', hint: '文档处理失败，请查看错误原因后重试。' },
 };
 
 // ── Accepted file types ──
@@ -102,7 +102,7 @@ export default function DocumentsPage() {
       }
       uploadMutation.mutate(file, {
         onSuccess: () => {
-          msg.success(`${file.name} 上传成功，可立即用于问答`);
+          msg.success(`${file.name} 上传成功，系统正在解析，完成后即可用于问答`);
           options.onSuccess?.({});
         },
         onError: (err) => {
@@ -164,7 +164,7 @@ export default function DocumentsPage() {
         render: (status: DocumentStatus, record) => {
           const cfg = STATUS_MAP[status];
           return (
-            <Tooltip title={record.error_message}>
+            <Tooltip title={record.error_message || cfg.hint}>
               <Tag color={cfg.color}>{cfg.label}</Tag>
             </Tooltip>
           );

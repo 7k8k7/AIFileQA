@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     retrieval_candidate_multiplier: int = 2
     retrieval_vector_weight: float = 0.65
     retrieval_keyword_weight: float = 0.35
+    conversation_recent_messages: int = 8
+    conversation_summary_chars: int = 1200
+    conversation_history_char_budget: int = 3000
 
     # Server
     host: str = "0.0.0.0"

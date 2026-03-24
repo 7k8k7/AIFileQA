@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel
 
-DocumentStatus = Literal["上传成功", "解析中", "可用", "解析失败"]
+DocumentStatus = Literal["上传中", "解析中", "可用", "失败"]
 
 
 class DocumentOut(BaseModel):

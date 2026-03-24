@@ -165,6 +165,79 @@ async def test_history_formatting():
 
 
 @pytest.mark.asyncio
+async def test_openai_long_history_is_summarized_and_trimmed(monkeypatch):
+    provider = _make_provider(provider_type="openai")
+    history = [
+        _make_message("user", "第一轮问题非常长 " * 20),
+        _make_message("assistant", "第一轮回答非常长 " * 20),
+        _make_message("user", "第二轮问题非常长 " * 20),
+        _make_message("assistant", "第二轮回答非常长 " * 20),
+        _make_message("user", "第三轮问题"),
+        _make_message("assistant", "第三轮回答"),
+    ]
+
+    monkeypatch.setattr(llm_service.settings, "conversation_recent_messages", 2)
+    monkeypatch.setattr(llm_service.settings, "conversation_summary_chars", 220)
+    monkeypatch.setattr(llm_service.settings, "conversation_history_char_budget", 40)
+
+    captured_payload = {}
+
+    async def fake_stream_openai(url, headers, payload, timeout):
+        captured_payload.update(payload)
+        yield 'data: {"type": "token", "content": "ok"}\n\n'
+
+    with patch.object(llm_service, "_stream_openai", fake_stream_openai):
+        async for _ in llm_service.stream_chat_completion(
+            provider, history, "当前问题", system_prompt="你是助手"
+        ):
+            pass
+
+    messages = captured_payload["messages"]
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"] == "你是助手"
+    assert messages[1]["role"] == "system"
+    assert "更早对话的压缩摘要" in messages[1]["content"]
+    assert "第一轮问题非常长" in messages[1]["content"]
+    assert messages[-2]["role"] == "assistant"
+    assert messages[-2]["content"] == "第三轮回答"
+    assert messages[-1]["role"] == "user"
+    assert messages[-1]["content"] == "当前问题"
+
+
+@pytest.mark.asyncio
+async def test_claude_merges_summary_into_system_field(monkeypatch):
+    provider = _make_provider(provider_type="claude", api_key="sk-ant-test")
+    history = [
+        _make_message("user", "旧问题一"),
+        _make_message("assistant", "旧回答一"),
+        _make_message("user", "旧问题二"),
+        _make_message("assistant", "旧回答二"),
+    ]
+
+    monkeypatch.setattr(llm_service.settings, "conversation_recent_messages", 1)
+    monkeypatch.setattr(llm_service.settings, "conversation_summary_chars", 120)
+    monkeypatch.setattr(llm_service.settings, "conversation_history_char_budget", 20)
+
+    captured_payload = {}
+
+    async def fake_stream_anthropic(url, headers, payload, timeout):
+        captured_payload.update(payload)
+        yield 'data: {"type": "token", "content": "ok"}\n\n'
+
+    with patch.object(llm_service, "_stream_anthropic", fake_stream_anthropic):
+        async for _ in llm_service.stream_chat_completion(
+            provider, history, "新问题", system_prompt="文档助手"
+        ):
+            pass
+
+    assert "文档助手" in captured_payload["system"]
+    assert "更早对话的压缩摘要" in captured_payload["system"]
+    assert "旧问题一" in captured_payload["system"]
+    roles = [m["role"] for m in captured_payload["messages"]]
+    assert roles == ["assistant", "user"]
+
+
+@pytest.mark.asyncio
 async def test_openai_stream_yields_tokens():
     """Verify _stream_openai correctly parses SSE and yields token events."""
     async def mock_lines():

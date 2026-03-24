@@ -2,14 +2,23 @@
 
 import json
 from collections.abc import AsyncGenerator
+import logging
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.provider import ProviderConfig
 from app.models.chat import ChatMessage
 from app.services.provider_url import build_provider_url, normalize_provider_base_url
+
+logger = logging.getLogger(__name__)
+
+SUMMARY_SYSTEM_PROMPT = (
+    "以下是更早对话的压缩摘要，仅用于保留上下文。"
+    "如果它与最近几轮原始消息冲突，请以最近几轮原始消息为准。\n\n{summary}"
+)
 
 
 async def get_default_provider(db: AsyncSession) -> ProviderConfig | None:
@@ -36,14 +45,21 @@ async def stream_chat_completion(
         data: {"type":"token","content":"Hello"}
         data: {"type":"done","message_id":"..."}
     """
+    summary_text, recent_messages = _prepare_conversation_context(messages)
+
     # Build message history
     history: list[dict[str, str]] = []
 
     # For OpenAI-compatible: inject system prompt as first message
     if system_prompt and provider.provider_type != "claude":
         history.append({"role": "system", "content": system_prompt})
+    if summary_text and provider.provider_type != "claude":
+        history.append({
+            "role": "system",
+            "content": SUMMARY_SYSTEM_PROMPT.format(summary=summary_text),
+        })
 
-    for m in messages:
+    for m in recent_messages:
         history.append({"role": m.role, "content": m.content})
     history.append({"role": "user", "content": user_content})
 
@@ -55,6 +71,7 @@ async def stream_chat_completion(
         headers["x-api-key"] = provider.api_key
         headers["anthropic-version"] = "2023-06-01"
         url = build_provider_url(url, "/v1/messages")
+        claude_system_prompt = _merge_system_and_summary(system_prompt, summary_text)
         payload: dict = {
             "model": provider.model_name,
             "max_tokens": provider.max_tokens,
@@ -63,8 +80,8 @@ async def stream_chat_completion(
             "messages": history,
         }
         # Anthropic uses a separate 'system' field
-        if system_prompt:
-            payload["system"] = system_prompt
+        if claude_system_prompt:
+            payload["system"] = claude_system_prompt
         async for chunk in _stream_anthropic(url, headers, payload, provider.timeout_seconds):
             yield chunk
     else:
@@ -81,6 +98,87 @@ async def stream_chat_completion(
         }
         async for chunk in _stream_openai(url, headers, payload, provider.timeout_seconds):
             yield chunk
+
+
+def _prepare_conversation_context(messages: list[ChatMessage]) -> tuple[str | None, list[ChatMessage]]:
+    if not messages:
+        return None, []
+
+    recent_limit = max(settings.conversation_recent_messages, 0)
+    summary_char_limit = max(settings.conversation_summary_chars, 0)
+    history_char_budget = max(settings.conversation_history_char_budget, 0)
+
+    recent_messages = list(messages[-recent_limit:]) if recent_limit else []
+    older_messages = list(messages[:-recent_limit]) if recent_limit else list(messages)
+
+    if history_char_budget > 0 and recent_messages:
+        trimmed_recent: list[ChatMessage] = []
+        used_chars = 0
+        for message in reversed(recent_messages):
+            content_len = len((message.content or "").strip())
+            if trimmed_recent and used_chars + content_len > history_char_budget:
+                break
+            trimmed_recent.append(message)
+            used_chars += content_len
+        recent_messages = list(reversed(trimmed_recent))
+        if not recent_messages and messages:
+            recent_messages = [messages[-1]]
+
+    summary_text = _summarize_messages(older_messages, max_chars=summary_char_limit)
+    logger.info(
+        "LLM context prepared: total=%d, summarized=%d, recent=%d, summary_chars=%d",
+        len(messages),
+        len(older_messages),
+        len(recent_messages),
+        len(summary_text or ""),
+    )
+    return summary_text, recent_messages
+
+
+def _summarize_messages(messages: list[ChatMessage], *, max_chars: int) -> str | None:
+    if not messages or max_chars <= 0:
+        return None
+
+    lines: list[str] = []
+    current_len = 0
+    truncated = False
+
+    for message in messages:
+        role_label = "用户" if message.role == "user" else "助手"
+        content = _clip_text((message.content or "").strip(), 180)
+        if not content:
+            continue
+        line = f"- {role_label}：{content}"
+        addition = len(line) + (1 if lines else 0)
+        if current_len + addition > max_chars:
+            truncated = True
+            break
+        lines.append(line)
+        current_len += addition
+
+    if not lines:
+        return None
+    if truncated:
+        suffix = "\n- 以上仅保留更早对话的关键信息摘要。"
+        if current_len + len(suffix) <= max_chars:
+            lines.append(suffix.lstrip("\n"))
+
+    return "\n".join(lines)
+
+
+def _clip_text(content: str, limit: int) -> str:
+    normalized = " ".join(content.split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(limit - 1, 1)].rstrip() + "…"
+
+
+def _merge_system_and_summary(system_prompt: str | None, summary_text: str | None) -> str | None:
+    if system_prompt and summary_text:
+        return f"{system_prompt}\n\n{SUMMARY_SYSTEM_PROMPT.format(summary=summary_text)}"
+    return system_prompt or (
+        SUMMARY_SYSTEM_PROMPT.format(summary=summary_text) if summary_text else None
+    )
 
 
 async def _stream_openai(

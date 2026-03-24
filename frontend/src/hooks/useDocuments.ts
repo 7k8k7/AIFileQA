@@ -16,7 +16,7 @@ export function useDocuments(params?: {
 }
 
 /**
- * Auto-poll when any document is in '解析中' status.
+ * Auto-poll when any document is still in the upload/parse pipeline.
  */
 export function useDocumentsWithPolling(params?: {
   keyword?: string;
@@ -27,10 +27,10 @@ export function useDocumentsWithPolling(params?: {
     queryKey: [...DOCS_KEY, params],
     queryFn: () => fetchDocuments(params),
     refetchInterval: (query) => {
-      const hasParsing = query.state.data?.items.some(
-        (d) => d.status === ('解析中' as DocumentStatus),
+      const hasPending = query.state.data?.items.some(
+        (d) => ['上传中', '解析中'].includes(d.status as DocumentStatus),
       );
-      return hasParsing ? 3000 : false;
+      return hasPending ? 3000 : false;
     },
   });
 }

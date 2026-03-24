@@ -23,8 +23,8 @@ class Document(Base):
     file_ext: Mapped[str] = mapped_column(String(16), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="上传成功"
-    )  # 上传成功 | 解析中 | 可用 | 解析失败
+        String(16), nullable=False, default="上传中"
+    )  # 上传中 | 解析中 | 可用 | 失败
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

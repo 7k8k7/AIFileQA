@@ -47,7 +47,7 @@ async def _run_parse(doc_id: str, file_path: str, file_ext: str) -> None:
     2. Parse document in executor (CPU-bound)
     3. Generate embeddings (if provider available)
     4. Save chunks to DB
-    5. Set status → 可用 (or 解析失败)
+    5. Set status → 可用 (or 失败)
     """
     # 1. Mark as parsing
     async with async_session() as db:
@@ -166,6 +166,6 @@ async def _mark_failed(doc_id: str, message: str) -> None:
             select(Document).where(Document.id == doc_id)
         )).scalar_one_or_none()
         if doc:
-            doc.status = "解析失败"
+            doc.status = "失败"
             doc.error_message = message
             await db.commit()

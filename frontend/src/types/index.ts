@@ -1,6 +1,6 @@
 // ── Document ──
 
-export type DocumentStatus = '上传成功' | '解析中' | '可用' | '解析失败';
+export type DocumentStatus = '上传中' | '解析中' | '可用' | '失败';
 
 export interface Document {
   id: string;

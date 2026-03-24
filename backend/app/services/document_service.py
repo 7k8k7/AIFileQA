@@ -13,6 +13,18 @@ from app.services.vector_store_service import delete_document_chunks as delete_v
 
 logger = logging.getLogger(__name__)
 
+LEGACY_STATUS_MAP = {
+    "上传成功": "上传中",
+    "解析失败": "失败",
+}
+
+
+def normalize_document_status(doc: Document) -> Document:
+    normalized = LEGACY_STATUS_MAP.get(doc.status)
+    if normalized:
+        doc.status = normalized
+    return doc
+
 
 async def list_documents(
     db: AsyncSession,
@@ -38,6 +50,13 @@ async def list_documents(
         .limit(page_size)
     )
     rows = (await db.execute(q)).scalars().all()
+    changed = False
+    for row in rows:
+        before = row.status
+        normalize_document_status(row)
+        changed = changed or (row.status != before)
+    if changed:
+        await db.commit()
 
     return PaginatedResponse[DocumentOut](
         items=[DocumentOut.model_validate(r) for r in rows],
@@ -48,7 +67,14 @@ async def list_documents(
 
 
 async def get_document(db: AsyncSession, doc_id: str) -> Document | None:
-    return (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if not doc:
+        return None
+    before = doc.status
+    normalize_document_status(doc)
+    if doc.status != before:
+        await db.commit()
+    return doc
 
 
 async def create_document(
@@ -59,7 +85,7 @@ async def create_document(
     file_size: int,
     storage_path: str,
 ) -> Document:
-    """Insert a new document record with status '上传成功'.
+    """Insert a new document record with status '上传中'.
 
     After commit, the caller should trigger async parsing via parsing_task.trigger_parse().
     """
@@ -68,7 +94,7 @@ async def create_document(
         file_ext=file_ext,
         file_size=file_size,
         storage_path=storage_path,
-        status="上传成功",
+        status="上传中",
     )
     db.add(doc)
     await db.flush()
