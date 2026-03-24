@@ -32,7 +32,11 @@
       "Bash(grep -E \"\\\\.\\(ts|tsx\\)$\")",
       "Bash(find d:documentDworksAgenticEngineeringFileManagementfrontendsrc -name types* -o -name index.ts)",
       "Bash(find d:documentDworksAgenticEngineeringFileManagement -name *.md -type f)",
-      "Bash(python -c \"from app.api.providers import router; print\\(''providers API OK''\\)\")"
+      "Bash(python -c \"from app.api.providers import router; print\\(''providers API OK''\\)\")",
+      "Bash(find /d/documentD/works/AgenticEngineering/FileManagement/backend -type f -name *.py)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(xargs ls:*)",
+      "Bash(find /d/documentD/works/AgenticEngineering/FileManagement -maxdepth 2 -type d -not -path */node_modules/* -not -path */.git/*)"
     ]
   }
 }

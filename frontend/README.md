@@ -65,6 +65,25 @@ pnpm build
 pnpm preview
 ```
 
+## 测试
+
+前端已经接入 Vitest + jsdom，覆盖了两类核心测试：
+- Zustand store：流式状态、来源状态、乐观消息
+- Service 层：文档请求、SSE 解析、聊天发送与重新生成 URL
+
+运行命令：
+
+```bash
+cd frontend
+pnpm test
+```
+
+持续监听：
+
+```bash
+pnpm test:watch
+```
+
 ## 联调方式
 
 开发环境默认已经配置了代理：
@@ -122,6 +141,7 @@ VITE_API_BASE_URL=http://localhost:8000/api
 - 因为 Axios 不支持 `ReadableStream`，这里改用原生 `fetch`
 - 新建会话时可选择 provider，并把该 provider 绑定到会话
 - 单文档范围支持选择多个文档；头部默认只显示第一个文件名摘要，点击后可查看完整列表
+- provider 更新为空 key 时，前端可以安全提交，后端会保留原 key
 
 SSE 事件约定：
 
@@ -158,7 +178,9 @@ src/
 │   ├── documents.ts
 │   ├── providers.ts
 │   └── chat.ts
-└── stores/
+├── test/
+├── stores/__tests__/
+└── services/__tests__/
 ```
 
 ## 页面说明

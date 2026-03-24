@@ -78,6 +78,24 @@ docker compose up -d --build
 docker compose down
 ```
 
+## 测试
+
+后端已经包含三层测试：
+- 服务层单元测试：`parser / embedding / retrieval / llm / vector store`
+- API 层测试：`documents / providers / chat`
+- 集成测试：上传文档、解析、会话、SSE、provider 选择、多文档范围等全链路
+
+运行命令：
+
+```bash
+cd backend
+python -m pytest tests -q
+```
+
+说明：
+- `backend/tests/conftest.py` 会在测试时覆盖本机的 `DEBUG` 环境变量，避免 Windows 全局环境变量影响 pytest 收集
+- 测试使用临时 SQLite 和临时 Chroma 目录，不会污染正式数据
+
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
@@ -231,3 +249,4 @@ data: {"type":"error","content":"错误信息"}
 - 检索优先走“当前会话 provider 对应 embedding 空间”的 ChromaDB 向量搜索；如果该 provider 没开 embedding、不支持 embedding，或当前向量不存在，会回退到关键词匹配。
 - 向量库按 `provider_id + embedding_model + chunk_id` 隔离，避免不同 provider / 不同 embedding 模型的向量混用。
 - 解析任务使用后台异步任务 + 进程池，上传接口会先返回，再继续处理文档。
+- Provider 更新时如果传入空 `api_key`，后端会保留旧 key，不会误清空。

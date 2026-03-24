@@ -79,6 +79,9 @@ async def update_provider(
         return None
 
     update_data = data.model_dump(exclude_unset=True)
+    if update_data.get("api_key") == "":
+        update_data.pop("api_key")
+
     merged_provider_type = update_data.get("provider_type", provider.provider_type)
     merged_api_key = update_data.get("api_key", provider.api_key)
     merged_enable_embedding = update_data.get("enable_embedding", provider.enable_embedding)
