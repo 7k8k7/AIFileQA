@@ -60,8 +60,17 @@ export interface ProviderConfig {
   max_tokens: number;
   timeout_seconds: number;
   is_default: boolean;
+   last_test_success: boolean;
+   last_test_message?: string | null;
+   last_test_at?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProviderTestResult {
+  success: boolean;
+  message: string;
+  provider: ProviderConfig;
 }
 
 // ── SSE ──

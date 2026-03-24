@@ -2,6 +2,7 @@
 
 import httpx
 import logging
+from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,15 +21,23 @@ from app.services.provider_url import build_provider_url, normalize_provider_bas
 logger = logging.getLogger(__name__)
 
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def to_provider_out(provider: ProviderConfig) -> ProviderOut:
+    out = ProviderOut.model_validate(provider)
+    out.api_key = mask_api_key(provider.api_key)
+    return out
+
+
 async def list_providers(db: AsyncSession) -> list[ProviderOut]:
     rows = (
         await db.execute(select(ProviderConfig).order_by(ProviderConfig.created_at))
     ).scalars().all()
     out = []
     for r in rows:
-        p = ProviderOut.model_validate(r)
-        p.api_key = mask_api_key(r.api_key)
-        out.append(p)
+        out.append(to_provider_out(r))
     return out
 
 
@@ -48,10 +57,6 @@ async def get_provider_detail(
 
 
 async def create_provider(db: AsyncSession, data: ProviderCreate) -> ProviderConfig:
-    # If this is the first provider, make it default
-    count = (await db.execute(select(ProviderConfig))).scalars().all()
-    is_first = len(count) == 0
-
     provider = ProviderConfig(
         provider_type=data.provider_type,
         base_url=normalize_provider_base_url(data.base_url),
@@ -62,12 +67,14 @@ async def create_provider(db: AsyncSession, data: ProviderCreate) -> ProviderCon
         temperature=data.temperature,
         max_tokens=data.max_tokens,
         timeout_seconds=data.timeout_seconds,
-        is_default=data.is_default or is_first,
+        is_default=False,
+        last_test_success=False,
+        last_test_message="尚未测试连接",
+        last_test_at=None,
     )
 
-    # If setting as default, clear other defaults
-    if provider.is_default:
-        await _clear_defaults(db)
+    if data.is_default:
+        raise ValueError("请先测试连接成功，再设为默认供应商")
 
     db.add(provider)
     await db.flush()
@@ -98,12 +105,22 @@ async def update_provider(
         embedding_model=merged_embedding_model,
     )
 
+    connectivity_fields = {"provider_type", "base_url", "model_name", "api_key", "timeout_seconds"}
+    connectivity_changed = bool(connectivity_fields & set(update_data.keys()))
+
     for key, value in update_data.items():
         if key == "base_url" and value is not None:
             value = normalize_provider_base_url(value)
         if key == "embedding_model" and value is not None:
             value = value.strip()
         setattr(provider, key, value)
+
+    if connectivity_changed:
+        provider.last_test_success = False
+        provider.last_test_message = "配置已修改，请重新测试连接"
+        provider.last_test_at = None
+        if provider.is_default:
+            provider.is_default = False
 
     await db.flush()
     await db.refresh(provider)
@@ -119,6 +136,8 @@ async def set_default_provider(db: AsyncSession, provider_id: str) -> bool:
     provider = await get_provider(db, provider_id)
     if not provider:
         return False
+    if not provider.last_test_success:
+        raise ValueError("请先测试连接成功，再设为默认供应商")
     await _clear_defaults(db)
     provider.is_default = True
     await db.flush()
@@ -176,27 +195,69 @@ async def test_connection(db: AsyncSession, provider_id: str) -> dict:
                 resp = await client.get(url, headers=headers)
 
             if resp.status_code < 400:
+                provider.last_test_success = True
+                provider.last_test_message = "连接成功"
+                provider.last_test_at = _utcnow()
+                await db.flush()
+                await db.refresh(provider)
                 logger.info("Provider connectivity test succeeded: %s", summarize_provider(provider))
-                return {"success": True, "message": "连接成功"}
+                return {
+                    "success": True,
+                    "message": "连接成功",
+                    "provider": to_provider_out(provider),
+                }
             else:
                 body = resp.text[:200]
+                provider.last_test_success = False
+                provider.last_test_message = f"HTTP {resp.status_code}: {body}"
+                provider.last_test_at = _utcnow()
+                if provider.is_default:
+                    provider.is_default = False
+                await db.flush()
+                await db.refresh(provider)
                 logger.warning(
                     "Provider connectivity test failed: %s status=%s body=%s",
                     summarize_provider(provider),
                     resp.status_code,
                     body,
                 )
-                return {"success": False, "message": f"HTTP {resp.status_code}: {body}"}
+                return {
+                    "success": False,
+                    "message": f"HTTP {resp.status_code}: {body}",
+                    "provider": to_provider_out(provider),
+                }
     except httpx.TimeoutException:
+        provider.last_test_success = False
+        provider.last_test_message = "连接超时"
+        provider.last_test_at = _utcnow()
+        if provider.is_default:
+            provider.is_default = False
+        await db.flush()
+        await db.refresh(provider)
         logger.warning("Provider connectivity test timed out: %s", summarize_provider(provider))
-        return {"success": False, "message": "连接超时"}
+        return {
+            "success": False,
+            "message": "连接超时",
+            "provider": to_provider_out(provider),
+        }
     except Exception as e:
+        provider.last_test_success = False
+        provider.last_test_message = f"连接失败: {str(e)[:200]}"
+        provider.last_test_at = _utcnow()
+        if provider.is_default:
+            provider.is_default = False
+        await db.flush()
+        await db.refresh(provider)
         logger.warning(
             "Provider connectivity test errored: %s error=%s",
             summarize_provider(provider),
             str(e)[:200],
         )
-        return {"success": False, "message": f"连接失败: {str(e)[:200]}"}
+        return {
+            "success": False,
+            "message": f"连接失败: {str(e)[:200]}",
+            "provider": to_provider_out(provider),
+        }
 
 
 async def _clear_defaults(db: AsyncSession) -> None:

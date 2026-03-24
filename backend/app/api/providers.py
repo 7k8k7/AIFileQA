@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.schemas.provider import ProviderCreate, ProviderUpdate, ProviderOut, ProviderDetailOut
+from app.schemas.provider import ProviderCreate, ProviderUpdate, ProviderOut, ProviderDetailOut, ProviderTestOut
 from app.services.provider_service import (
     list_providers,
     get_provider_detail,
@@ -39,7 +39,10 @@ async def add_provider(
     data: ProviderCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    provider = await create_provider(db, data)
+    try:
+        provider = await create_provider(db, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return ProviderOut.model_validate(provider)
 
 
@@ -49,13 +52,16 @@ async def modify_provider(
     data: ProviderUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    provider = await update_provider(db, provider_id, data)
+    try:
+        provider = await update_provider(db, provider_id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not provider:
         raise HTTPException(status_code=404, detail="供应商不存在")
     return ProviderOut.model_validate(provider)
 
 
-@router.post("/{provider_id}/test")
+@router.post("/{provider_id}/test", response_model=ProviderTestOut)
 async def test_provider(
     provider_id: str,
     db: AsyncSession = Depends(get_db),
@@ -68,7 +74,10 @@ async def set_default(
     provider_id: str,
     db: AsyncSession = Depends(get_db),
 ):
-    ok = await set_default_provider(db, provider_id)
+    try:
+        ok = await set_default_provider(db, provider_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not ok:
         raise HTTPException(status_code=404, detail="供应商不存在")
 

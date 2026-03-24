@@ -52,6 +52,9 @@ class ProviderOut(BaseModel):
     max_tokens: int
     timeout_seconds: int
     is_default: bool
+    last_test_success: bool
+    last_test_message: str | None = None
+    last_test_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -70,10 +73,19 @@ class ProviderDetailOut(BaseModel):
     max_tokens: int
     timeout_seconds: int
     is_default: bool
+    last_test_success: bool
+    last_test_message: str | None = None
+    last_test_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ProviderTestOut(BaseModel):
+    success: bool
+    message: str
+    provider: ProviderOut
 
 
 def mask_api_key(key: str) -> str:

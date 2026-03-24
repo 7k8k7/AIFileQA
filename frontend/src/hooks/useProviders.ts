@@ -8,9 +8,13 @@ import {
   setDefaultProvider,
   deleteProvider,
 } from '../services';
-import type { ProviderConfig } from '../types';
+import type { ProviderConfig, ProviderTestResult } from '../types';
 
 const PROVIDERS_KEY = ['providers'] as const;
+type ProviderCreatePayload = Omit<
+  ProviderConfig,
+  'id' | 'created_at' | 'updated_at' | 'last_test_success' | 'last_test_message' | 'last_test_at'
+>;
 
 export function useProviders() {
   return useQuery({
@@ -30,7 +34,7 @@ export function useProvider(providerId: string | null) {
 export function useCreateProvider() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Omit<ProviderConfig, 'id' | 'created_at' | 'updated_at'>) =>
+    mutationFn: (data: ProviderCreatePayload) =>
       createProvider(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: PROVIDERS_KEY }),
   });
@@ -51,8 +55,15 @@ export function useUpdateProvider() {
 }
 
 export function useTestProvider() {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => testProvider(id),
+    onSuccess: (result: ProviderTestResult, providerId: string) => {
+      qc.setQueryData<ProviderConfig[] | undefined>(PROVIDERS_KEY, (current) =>
+        current?.map((item) => (item.id === result.provider.id ? result.provider : item)),
+      );
+      qc.invalidateQueries({ queryKey: [...PROVIDERS_KEY, providerId] });
+    },
   });
 }
 

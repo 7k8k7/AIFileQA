@@ -149,6 +149,15 @@
   animation: fadeIn 0.3s var(--ease-out);
 }
 
+.testPending {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: var(--space-xs);
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

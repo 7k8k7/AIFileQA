@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.observability import configure_logging
+from app.services.parsing_task import start_job_worker, stop_job_worker
 
 configure_logging(settings.log_level)
 logger = logging.getLogger(__name__)
@@ -24,9 +25,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await start_job_worker()
     yield
     # Shutdown
     logger.info("Application shutting down: app=%s", settings.app_name)
+    await stop_job_worker()
     await engine.dispose()
 
 

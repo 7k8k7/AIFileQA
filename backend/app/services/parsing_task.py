@@ -1,5 +1,4 @@
-"""Async document parsing task — runs parsing in a background thread/process,
-generates embeddings, and updates document status + inserts chunks into DB."""
+"""Background parsing worker built on the jobs table."""
 
 from __future__ import annotations
 
@@ -9,9 +8,18 @@ from concurrent.futures import ProcessPoolExecutor
 
 from sqlalchemy import select, delete
 
+from app.core.config import settings
 from app.core.database import async_session
 from app.models.document import Document, DocumentChunk
+from app.models.job import Job
 from app.models.provider import ProviderConfig
+from app.services.job_service import (
+    claim_next_parse_job,
+    complete_job,
+    create_parse_job,
+    reset_stalled_jobs,
+    retry_or_fail_job,
+)
 from app.services.parser_service import parse_document
 from app.services.embedding_service import generate_embeddings, serialize_embedding, get_embedding_model
 from app.services.vector_store_service import (
@@ -23,7 +31,7 @@ from app.services.vector_store_service import (
 logger = logging.getLogger(__name__)
 
 _executor: ProcessPoolExecutor | None = None
-_background_tasks: set[asyncio.Task] = set()
+_worker_task: asyncio.Task | None = None
 
 
 def _get_executor() -> ProcessPoolExecutor:
@@ -35,47 +43,92 @@ def _get_executor() -> ProcessPoolExecutor:
 
 
 async def trigger_parse(doc_id: str, file_path: str, file_ext: str) -> None:
-    """Schedule document parsing as a background task."""
-    task = asyncio.create_task(_run_parse(doc_id, file_path, file_ext))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-
-
-async def _run_parse(doc_id: str, file_path: str, file_ext: str) -> None:
-    """Execute the full pipeline:
-    1. Set status → 解析中
-    2. Parse document in executor (CPU-bound)
-    3. Generate embeddings (if provider available)
-    4. Save chunks to DB
-    5. Set status → 可用 (or 失败)
-    """
-    # 1. Mark as parsing
+    """Create a parse job for the document."""
     async with async_session() as db:
-        doc = (await db.execute(
-            select(Document).where(Document.id == doc_id)
-        )).scalar_one_or_none()
-        if not doc:
-            logger.error("Document %s not found for parsing", doc_id)
-            return
-        doc.status = "解析中"
+        await create_parse_job(
+            db,
+            document_id=doc_id,
+            file_path=file_path,
+            file_ext=file_ext,
+        )
         await db.commit()
 
-    # 2. Run CPU-bound parsing in process pool
-    loop = asyncio.get_running_loop()
-    try:
-        chunks = await loop.run_in_executor(
-            _get_executor(), parse_document, file_path, file_ext
-        )
-    except Exception as e:
-        logger.exception("Parsing failed for document %s", doc_id)
-        await _mark_failed(doc_id, str(e)[:500])
+
+async def start_job_worker() -> None:
+    global _worker_task
+    if _worker_task and not _worker_task.done():
         return
+    _worker_task = asyncio.create_task(_job_worker_loop())
+
+
+async def stop_job_worker() -> None:
+    global _worker_task, _executor
+    if _worker_task:
+        _worker_task.cancel()
+        try:
+            await _worker_task
+        except asyncio.CancelledError:
+            pass
+        _worker_task = None
+    if _executor is not None:
+        _executor.shutdown(cancel_futures=True)
+        _executor = None
+
+
+async def _job_worker_loop() -> None:
+    while True:
+        worked = await run_parse_worker_once()
+        if not worked:
+            await asyncio.sleep(settings.job_poll_seconds)
+
+
+async def run_parse_worker_once() -> bool:
+    async with async_session() as db:
+        reset_results = await reset_stalled_jobs(db)
+        for result in reset_results:
+            await _apply_job_result_to_document(db, result.document_id, result.status, result.message)
+        claimed = await claim_next_parse_job(db)
+        await db.commit()
+
+    if not claimed:
+        return bool(reset_results)
+
+    try:
+        await asyncio.wait_for(
+            _run_parse_pipeline(claimed.document_id, claimed.file_path, claimed.file_ext),
+            timeout=settings.job_stale_seconds,
+        )
+    except asyncio.TimeoutError:
+        message = f"运行超过 {settings.job_stale_seconds // 60} 分钟，已自动重置并重试"
+        await _handle_job_failure(claimed.id, claimed.document_id, message)
+    except Exception as exc:
+        message = str(exc)[:500] or "解析失败"
+        await _handle_job_failure(claimed.id, claimed.document_id, message)
+    else:
+        async with async_session() as db:
+            await complete_job(db, claimed.id)
+            await db.commit()
+
+    return True
+
+
+async def _run_parse_pipeline(doc_id: str, file_path: str, file_ext: str) -> None:
+    async with async_session() as db:
+        doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+        if not doc:
+            raise FileNotFoundError(f"文档不存在: {doc_id}")
+        doc.status = "解析中"
+        doc.error_message = None
+        await db.commit()
+
+    loop = asyncio.get_running_loop()
+    chunks = await loop.run_in_executor(
+        _get_executor(), parse_document, file_path, file_ext
+    )
 
     if not chunks:
-        await _mark_failed(doc_id, "文档内容为空，无法提取文本")
-        return
+        raise ValueError("文档内容为空，无法提取文本")
 
-    # 3. Try to generate embeddings (best-effort)
     raw: list[list[float] | None] = [None] * len(chunks)
     embeddings: list[str | None] = [None] * len(chunks)
     embedding_model: str | None = None
@@ -91,81 +144,89 @@ async def _run_parse(doc_id: str, file_path: str, file_ext: str) -> None:
             texts = [c.content for c in chunks]
             raw = await generate_embeddings(provider, texts)
             embeddings = [serialize_embedding(e) for e in raw]
-            logger.info("Generated %d embeddings for document %s",
-                        sum(1 for e in embeddings if e), doc_id)
+            logger.info(
+                "Generated %d embeddings for document %s",
+                sum(1 for e in embeddings if e),
+                doc_id,
+            )
     except Exception as e:
-        logger.warning("Embedding generation failed for %s (will use keyword search): %s",
-                       doc_id, str(e)[:200])
+        logger.warning(
+            "Embedding generation failed for %s (will use keyword search): %s",
+            doc_id,
+            str(e)[:200],
+        )
 
-    # 4. Save chunks to DB
     async with async_session() as db:
         try:
-            try:
-                delete_vector_chunks(doc_id)
-            except Exception as e:
-                logger.warning("Failed to clear vector store for %s: %s", doc_id, str(e)[:200])
-
-            # Clear existing chunks (in case of re-parse)
-            await db.execute(
-                delete(DocumentChunk).where(DocumentChunk.document_id == doc_id)
-            )
-
-            chunk_rows: list[DocumentChunk] = []
-            for chunk, emb in zip(chunks, embeddings):
-                row = DocumentChunk(
-                    document_id=doc_id,
-                    chunk_index=chunk.index,
-                    content=chunk.content,
-                    page_no=chunk.page_no,
-                    section_label=chunk.section_label,
-                    embedding=emb,
-                )
-                chunk_rows.append(row)
-                db.add(row)
-
-            await db.flush()
-
-            vector_records = [
-                VectorChunkRecord(
-                    chunk_id=row.id,
-                    document_id=doc_id,
-                    provider_id=provider.id,
-                    embedding_model=embedding_model,
-                    chunk_index=row.chunk_index,
-                    content=row.content,
-                    embedding=raw_embedding,
-                    page_no=row.page_no,
-                    section_label=row.section_label,
-                )
-                for row, raw_embedding in zip(chunk_rows, raw)
-                if provider and embedding_model and raw_embedding is not None
-            ]
-            if vector_records:
-                upsert_document_chunks(vector_records)
-
-            # 5. Mark as available
-            doc = (await db.execute(
-                select(Document).where(Document.id == doc_id)
-            )).scalar_one_or_none()
-            if doc:
-                doc.status = "可用"
-                doc.error_message = None
-
-            await db.commit()
-            logger.info("Document %s parsed: %d chunks", doc_id, len(chunks))
-
+            delete_vector_chunks(doc_id)
         except Exception as e:
-            logger.exception("Failed to save chunks for document %s", doc_id)
-            await db.rollback()
-            await _mark_failed(doc_id, f"保存切片失败: {str(e)[:300]}")
+            logger.warning("Failed to clear vector store for %s: %s", doc_id, str(e)[:200])
+
+        await db.execute(delete(DocumentChunk).where(DocumentChunk.document_id == doc_id))
+
+        chunk_rows: list[DocumentChunk] = []
+        for chunk, emb in zip(chunks, embeddings):
+            row = DocumentChunk(
+                document_id=doc_id,
+                chunk_index=chunk.index,
+                content=chunk.content,
+                page_no=chunk.page_no,
+                section_label=chunk.section_label,
+                embedding=emb,
+            )
+            chunk_rows.append(row)
+            db.add(row)
+
+        await db.flush()
+
+        vector_records = [
+            VectorChunkRecord(
+                chunk_id=row.id,
+                document_id=doc_id,
+                provider_id=provider.id,
+                embedding_model=embedding_model,
+                chunk_index=row.chunk_index,
+                content=row.content,
+                embedding=raw_embedding,
+                page_no=row.page_no,
+                section_label=row.section_label,
+            )
+            for row, raw_embedding in zip(chunk_rows, raw)
+            if provider and embedding_model and raw_embedding is not None
+        ]
+        if vector_records:
+            upsert_document_chunks(vector_records)
+
+        doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+        if not doc:
+            raise FileNotFoundError(f"文档不存在: {doc_id}")
+        doc.status = "可用"
+        doc.error_message = None
+        await db.commit()
+        logger.info("Document %s parsed: %d chunks", doc_id, len(chunks))
 
 
-async def _mark_failed(doc_id: str, message: str) -> None:
+async def _handle_job_failure(job_id: str, doc_id: str, message: str) -> None:
     async with async_session() as db:
-        doc = (await db.execute(
-            select(Document).where(Document.id == doc_id)
-        )).scalar_one_or_none()
-        if doc:
-            doc.status = "失败"
-            doc.error_message = message
-            await db.commit()
+        status = await retry_or_fail_job(db, job_id, message)
+        if status:
+            await _apply_job_result_to_document(db, doc_id, status, message)
+        await db.commit()
+
+
+async def _apply_job_result_to_document(
+    db,
+    document_id: str,
+    status: str,
+    message: str,
+) -> None:
+    doc = (await db.execute(select(Document).where(Document.id == document_id))).scalar_one_or_none()
+    if not doc:
+        return
+
+    if status == "failed":
+        doc.status = "失败"
+        doc.error_message = message
+    else:
+        doc.status = "解析中"
+        doc.error_message = message

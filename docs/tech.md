@@ -11,7 +11,7 @@
 1. 完整覆盖 [prd.md](D:/documentD/works/AgenticEngineering/FileManagement/docs/prd.md) 中定义的 MVP 范围。
 2. 对关键技术决策给出明确结论，避免实现阶段再次进行高成本讨论。
 3. 为前端、后端、测试和部署提供统一的实现边界。
-4. 支撑项目以 React + TypeScript + FastAPI + PostgreSQL + pgvector + Docker / Docker Compose 方案落地。
+4. 支撑项目以 React + TypeScript + FastAPI + SQLite + ChromaDB + Docker / Docker Compose 方案落地。
 
 ### 1.2 设计原则
 
@@ -29,9 +29,10 @@
 
 1. 前端 Web 应用：React + TypeScript 单页应用，负责三大页面和用户交互。
 2. 后端 API 服务：FastAPI 提供 REST API，负责文档管理、问答、会话和配置管理。
-3. PostgreSQL：保存业务数据、任务状态和向量索引。
+3. SQLite：保存业务数据和任务状态。
 4. 本地文件存储：保存原始上传文档，挂载 Docker volume。
-5. 外部 AI Provider：OpenAI、Claude、兼容 OpenAI API 的本地模型服务。
+5. ChromaDB：保存按 Provider 隔离的文档向量索引。
+6. 外部 AI Provider：OpenAI、Claude、兼容 OpenAI API 的本地模型服务。
 
 ### 2.2 逻辑架构
 
@@ -49,8 +50,8 @@
 2. 后端固定采用 FastAPI + REST API，不引入 GraphQL。
 3. 文档原文件固定存储在本地文件系统，通过 Docker volume 持久化。
 4. 文档解析、切片、Embedding、索引构建采用应用内异步任务，使用 `concurrent.futures.ProcessPoolExecutor` 在独立进程中执行 CPU 密集型解析，避免阻塞主事件循环。不单独引入 Worker 和消息队列。
-5. 检索方式采用 PostgreSQL + pgvector（HNSW 索引），问答链路采用”文档过滤 + 向量召回 + 上下文拼装 + LLM 生成”。
-6. Embedding 服务独立于 LLM Provider，统一使用 OpenAI Embedding API（text-embedding-3-small，1536 维），确保向量空间一致性。
+5. 检索方式采用 SQLite 元数据 + ChromaDB 本地向量库，问答链路采用“文档过滤 + 混合检索 + 上下文拼装 + LLM 生成”。
+6. Embedding 跟随 Provider 配置，优先使用会话绑定 Provider 的 `embedding_model`；若不支持或调用失败，则自动回退关键词检索。
 7. 问答响应采用 SSE（Server-Sent Events）流式输出，前端逐字渲染。
 
 ## 3. 模块划分与职责
@@ -101,17 +102,17 @@
 
 1. 前端选择文件并提交到上传接口。
 2. 后端校验扩展名和基础大小限制。
-3. 后端生成文档记录，状态初始化为 `上传成功`。
+3. 后端生成文档记录，状态初始化为 `上传中`。
 4. 后端将原文件落盘到本地存储目录。
 5. 后端创建解析任务，文档状态更新为 `解析中`。
 6. 异步任务读取文件并按类型执行解析。
 7. 解析成功后生成切片、向量并写入数据库，文档状态更新为 `可用`。
-8. 解析失败时记录错误信息，文档状态更新为 `解析失败`。
+8. 解析失败时记录错误信息，文档状态更新为 `失败`。
 
 ### 4.2 问答流程
 
 1. 用户进入问答页，新建会话或选择已有会话。
-2. 系统创建会话时写入当前默认 Provider 快照。
+2. 系统创建会话时写入当前会话绑定的 Provider ID；若未显式指定，则读取当前默认 Provider。
 3. 用户选择“全部文档”或“单个文档”范围并输入问题。
 4. 后端根据会话范围过滤可用文档。
 5. 后端对问题生成查询向量并从文档切片中进行 Top-K 召回。
@@ -126,7 +127,7 @@
 3. 后端执行字段校验。
 4. 管理员可调用测试连接接口验证配置。
 5. 测试成功后方可设置为默认 Provider。
-6. 新会话创建时读取默认 Provider 并写入会话快照。
+6. 新会话创建时读取默认 Provider 并写入会话绑定关系。
 
 ## 5. 数据模型设计
 
@@ -134,12 +135,12 @@
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| id | UUID | 文档主键 |
+| id | string | 文档主键，形如 `d-xxxx` |
 | file_name | varchar | 原始文件名 |
 | file_ext | varchar | 文件扩展名 |
 | file_size | bigint | 文件大小 |
 | storage_path | varchar | 文件存储路径 |
-| status | varchar | 上传成功 / 解析中 / 可用 / 解析失败 |
+| status | varchar | 上传中 / 解析中 / 可用 / 失败 |
 | error_message | text | 解析失败原因 |
 | uploaded_at | timestamptz | 上传时间 |
 | updated_at | timestamptz | 更新时间 |
@@ -148,24 +149,25 @@
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| id | UUID | 切片主键 |
-| document_id | UUID | 所属文档 |
+| id | string | 切片主键，形如 `c-xxxx` |
+| document_id | string | 所属文档 |
 | chunk_index | int | 切片序号 |
 | content | text | 切片文本 |
 | page_no | int | 页码，TXT/MD 可为空 |
 | section_label | varchar | 标题或段落标识 |
-| embedding | vector(1536) | pgvector 向量字段，1536 维（text-embedding-3-small） |
+| embedding | text/null | SQLite 中保存 JSON 序列化向量；真实向量检索以 ChromaDB 为准 |
 | created_at | timestamptz | 创建时间 |
 
 ### 5.3 会话对象 `chat_sessions`
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| id | UUID | 会话主键 |
+| id | string | 会话主键，形如 `s-xxxx` |
 | title | varchar | 会话标题，根据首次提问自动生成 |
 | scope_type | varchar | `all` 或 `single` |
-| document_id | UUID | 单文档模式下的文档 ID，可为空 |
-| provider_snapshot | jsonb | 会话创建时的 Provider 配置快照 |
+| provider_id | string/null | 会话绑定的 Provider ID |
+| document_id | string/null | 单文档模式下的首个文档 ID，可为空 |
+| document_ids_json | text/null | 多文档模式下的文档 ID 列表 JSON |
 | created_at | timestamptz | 创建时间 |
 | updated_at | timestamptz | 更新时间 |
 
@@ -173,25 +175,31 @@
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| id | UUID | 消息主键 |
-| session_id | UUID | 所属会话 |
+| id | string | 消息主键，形如 `m-xxxx` |
+| session_id | string | 所属会话 |
 | role | varchar | `user` / `assistant` |
 | content | text | 消息内容 |
+| sources_json | text/null | 历史回答来源快照 |
 | created_at | timestamptz | 创建时间 |
 
 ### 5.5 Provider 配置对象 `provider_configs`
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| id | UUID | 配置主键 |
+| id | string | 配置主键，形如 `p-xxxx` |
 | provider_type | varchar | `openai` / `claude` / `openai_compatible` |
 | base_url | varchar | 接口地址 |
 | model_name | varchar | 模型名 |
 | api_key | text | 密钥，数据库加密存储 |
+| embedding_model | varchar | Embedding 模型名 |
+| enable_embedding | boolean | 是否启用 Embedding |
 | temperature | numeric | 温度 |
 | max_tokens | int | 最大 Token |
 | timeout_seconds | int | 超时时间 |
 | is_default | boolean | 是否默认 Provider |
+| last_test_success | boolean | 最近一次连通性测试是否成功 |
+| last_test_message | text | 最近一次测试结果摘要 |
+| last_test_at | timestamptz/null | 最近一次测试时间 |
 | created_at | timestamptz | 创建时间 |
 | updated_at | timestamptz | 更新时间 |
 
@@ -199,14 +207,19 @@
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| id | UUID | 任务主键 |
+| id | string | 任务主键，形如 `j-xxxx` |
 | job_type | varchar | `parse_document` |
-| target_id | UUID | 关联文档 ID |
+| document_id | string | 关联文档 ID |
+| file_path | varchar | 待解析文件路径 |
+| file_ext | varchar | 文件扩展名 |
 | status | varchar | `pending` / `running` / `succeeded` / `failed` |
 | retry_count | int | 重试次数 |
+| max_retries | int | 最大重试次数 |
 | error_message | text | 错误信息 |
 | started_at | timestamptz | 开始时间 |
 | finished_at | timestamptz | 结束时间 |
+| created_at | timestamptz | 创建时间 |
+| updated_at | timestamptz | 更新时间 |
 
 ## 6. 接口设计
 
@@ -415,10 +428,11 @@ Prompt 拼装规则：
 1. `test_connection`：测试 Provider 连接是否可用。
 2. `generate_answer`：调用 LLM 生成回答，支持流式输出（返回 AsyncGenerator）。
 
-Embedding 服务独立于 LLM Provider Adapter：
+Embedding 与 LLM Provider 共享配置入口，但职责独立：
 
-1. `EmbeddingService`：统一使用 OpenAI Embedding API（text-embedding-3-small，1536 维）。
-2. 无论 LLM Provider 选择 OpenAI、Claude 还是本地模型，Embedding 均由 `EmbeddingService` 完成。
+1. `EmbeddingService`：根据当前 Provider 的 `enable_embedding` 和 `embedding_model` 调用 `/v1/embeddings`。
+2. Claude 固定不走 Embedding，直接回退为关键词检索。
+3. OpenAI / OpenAI-compatible Provider 在支持时走向量检索；失败时自动回退关键词检索。
 
 ### 9.2 Provider 实现方式
 
@@ -453,7 +467,7 @@ Embedding 服务独立于 LLM Provider Adapter：
 
 #### 文档管理页
 
-状态包括：首次加载（Skeleton 骨架屏）、空列表（居中引导上传）、上传中（按钮 loading）、解析中（标签脉冲动画）、可用、解析失败（悬停查看错误）、删除确认中（Modal）、搜索无结果。
+状态包括：首次加载（Skeleton 骨架屏）、空列表（居中引导上传）、上传中（按钮 loading）、解析中（标签脉冲动画）、可用、失败（悬停查看错误）、删除确认中（Modal）、搜索无结果。
 
 #### Agent 问答页
 
@@ -491,13 +505,13 @@ Embedding 服务独立于 LLM Provider Adapter：
 
 1. 删除正在解析中的文档：后端先将文档状态标记为已删除，解析任务在写入切片前检查文档是否仍存在，若已删除则放弃写入并标记任务为取消。
 2. 删除会话关联的文档：当会话的 `scope_type` 为 `single` 且关联文档已被删除时，问答接口返回"关联文档已被删除，请新建会话"提示。
-3. Provider 配置被删除后的会话处理：已创建的会话保留 Provider 快照，可继续使用，不受 Provider 删除影响。
+3. Provider 配置被删除后的会话处理：已创建的会话若仍绑定该 Provider，则后续发送消息时提示重新选择可用 Provider。
 
 ## 10.8 数据库迁移方案
 
 1. 使用 Alembic 管理数据库 Schema 迁移。
 2. 后端启动时自动执行 `alembic upgrade head`，确保数据库结构与代码一致。
-3. 初始迁移脚本需创建 pgvector 扩展（`CREATE EXTENSION IF NOT EXISTS vector`）及所有业务表。
+3. 迁移脚本需创建所有业务表，并覆盖 SQLite 的兼容写法。
 4. 每次 Schema 变更需生成新的迁移版本文件。
 
 ## 10.9 CORS 配置
@@ -510,11 +524,11 @@ Embedding 服务独立于 LLM Provider Adapter：
 
 ## 10.10 Embedding API Key 管理
 
-Embedding 服务（OpenAI Embedding API）的 API Key 通过环境变量 `EMBEDDING_API_KEY` 配置：
+Embedding 凭据复用 Provider 配置中的 `api_key`：
 
-1. Docker Compose 通过 `.env` 文件注入。
-2. 后端启动时校验该环境变量是否存在，缺失时给出明确启动失败提示。
-3. 该 Key 不通过系统配置页管理，不存入数据库。
+1. OpenAI / OpenAI-compatible Provider 由系统配置页管理 `api_key`、`embedding_model` 与 `enable_embedding`。
+2. 后端在生成查询向量时优先读取会话绑定 Provider。
+3. Provider 不支持 Embedding 或调用失败时，系统自动回退关键词检索，不阻塞问答。
 
 ## 11. 部署架构与运行方式
 
@@ -524,17 +538,18 @@ Embedding 服务（OpenAI Embedding API）的 API Key 通过环境变量 `EMBEDD
 
 1. `frontend`
 2. `backend`
-3. `postgres`
+3. `sqlite` 持久化卷
 
 ### 11.2 持久化内容
 
-1. PostgreSQL 数据目录。
+1. SQLite 数据文件目录。
 2. 上传文件目录。
+3. ChromaDB 向量目录。
 
 ### 11.3 运行要求
 
 1. 前端和后端均应提供 Dockerfile。
-2. 后端启动时自动检查数据库连接和 pgvector 扩展可用性。
+2. 后端启动时自动检查 SQLite 数据目录、Provider 密钥文件和 ChromaDB 目录是否可用。
 3. 本地开发和演示环境均以 Docker Compose 作为标准启动方式。
 
 ## 12. 安全、日志与错误处理
@@ -581,8 +596,8 @@ Embedding 服务（OpenAI Embedding API）的 API Key 通过环境变量 `EMBEDD
 
 1. 文件格式校验（合法格式通过、非法格式拒绝、大小写扩展名）。
 2. 文件大小校验（50 MB 上限，超出拒绝）。
-3. 文档状态流转（上传成功 → 解析中 → 可用 / 解析失败）。
-4. 切片逻辑（500 字符窗口、100 字符重叠、段落边界处理）。
+3. 文档状态流转（上传中 → 解析中 → 可用 / 失败）。
+4. 切片逻辑（500 字符窗口、50 字符重叠、段落边界处理）。
 5. TXT 解析（UTF-8 正常解析、非 UTF-8 编码兜底）。
 6. Markdown 解析（标题层级提取、纯文本输出）。
 7. PDF 解析（正常 PDF、密码锁定 PDF 报错、损坏 PDF 报错）。
@@ -605,7 +620,7 @@ Embedding 服务（OpenAI Embedding API）的 API Key 通过环境变量 `EMBEDD
 4. 上传空文件（0 字节）解析后标记为失败。
 5. 上传同名文件创建独立记录。
 6. 文档解析成功后状态变为 `可用`。
-7. 文档解析失败后状态变为 `解析失败` 并记录错误。
+7. 文档解析失败后状态变为 `失败` 并记录错误。
 8. 删除文档后无法继续被查询和问答命中。
 9. 删除不存在的文档返回 404。
 10. 文档列表支持按名称搜索和分页。

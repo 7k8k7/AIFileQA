@@ -45,7 +45,10 @@ def test_create_session(app_ctx):
         provider = client.post("/api/providers", json=_provider_payload())
         assert provider.status_code == 201
 
-        response = client.post("/api/sessions", json={"scope_type": "all"})
+        response = client.post(
+            "/api/sessions",
+            json={"scope_type": "all", "provider_id": provider.json()["id"]},
+        )
 
     assert response.status_code == 201
     body = response.json()
@@ -72,7 +75,10 @@ def test_send_message_sse_format(app_ctx, monkeypatch):
     with TestClient(app_ctx.main.app) as client:
         provider = client.post("/api/providers", json=_provider_payload())
         assert provider.status_code == 201
-        session = client.post("/api/sessions", json={"scope_type": "all"})
+        session = client.post(
+            "/api/sessions",
+            json={"scope_type": "all", "provider_id": provider.json()["id"]},
+        )
         assert session.status_code == 201
 
         with client.stream(
@@ -115,7 +121,10 @@ def test_regenerate_message(app_ctx, monkeypatch):
     with TestClient(app_ctx.main.app) as client:
         provider = client.post("/api/providers", json=_provider_payload())
         assert provider.status_code == 201
-        session = client.post("/api/sessions", json={"scope_type": "all"})
+        session = client.post(
+            "/api/sessions",
+            json={"scope_type": "all", "provider_id": provider.json()["id"]},
+        )
         assert session.status_code == 201
         session_id = session.json()["id"]
 
@@ -163,7 +172,10 @@ def test_delete_session(app_ctx, monkeypatch):
     with TestClient(app_ctx.main.app) as client:
         provider = client.post("/api/providers", json=_provider_payload())
         assert provider.status_code == 201
-        session = client.post("/api/sessions", json={"scope_type": "all"})
+        session = client.post(
+            "/api/sessions",
+            json={"scope_type": "all", "provider_id": provider.json()["id"]},
+        )
         assert session.status_code == 201
         session_id = session.json()["id"]
 

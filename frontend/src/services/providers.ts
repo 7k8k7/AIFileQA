@@ -1,5 +1,10 @@
-import type { ProviderConfig } from '../types';
+import type { ProviderConfig, ProviderTestResult } from '../types';
 import api from './api';
+
+type ProviderPayload = Omit<
+  ProviderConfig,
+  'id' | 'created_at' | 'updated_at' | 'last_test_success' | 'last_test_message' | 'last_test_at'
+>;
 
 export async function fetchProviders(): Promise<ProviderConfig[]> {
   const { data } = await api.get<ProviderConfig[]>('/providers');
@@ -12,7 +17,7 @@ export async function fetchProvider(id: string): Promise<ProviderConfig> {
 }
 
 export async function createProvider(
-  body: Omit<ProviderConfig, 'id' | 'created_at' | 'updated_at'>,
+  body: ProviderPayload,
 ): Promise<ProviderConfig> {
   const { data } = await api.post<ProviderConfig>('/providers', body);
   return data;
@@ -28,8 +33,8 @@ export async function updateProvider(
 
 export async function testProvider(
   id: string,
-): Promise<{ success: boolean; message: string }> {
-  const { data } = await api.post<{ success: boolean; message: string }>(`/providers/${id}/test`);
+): Promise<ProviderTestResult> {
+  const { data } = await api.post<ProviderTestResult>(`/providers/${id}/test`);
   return data;
 }
 

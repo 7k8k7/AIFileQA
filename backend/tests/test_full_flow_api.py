@@ -94,7 +94,6 @@ def test_full_flow_upload_parse_chat_sse(
             },
         )
         assert provider_resp.status_code == 201
-        assert provider_resp.json()["is_default"] is True
 
         upload_resp = client.post(
             "/api/documents",
@@ -112,7 +111,11 @@ def test_full_flow_upload_parse_chat_sse(
 
         session_resp = client.post(
             "/api/sessions",
-            json={"scope_type": "single", "document_id": doc_id},
+            json={
+                "scope_type": "single",
+                "document_id": doc_id,
+                "provider_id": provider_resp.json()["id"],
+            },
         )
         assert session_resp.status_code == 201
         session = session_resp.json()
@@ -449,7 +452,10 @@ def test_regenerate_last_assistant_message_updates_existing_reply(
         )
         assert provider_resp.status_code == 201
 
-        session_resp = client.post("/api/sessions", json={"scope_type": "all"})
+        session_resp = client.post(
+            "/api/sessions",
+            json={"scope_type": "all", "provider_id": provider_resp.json()["id"]},
+        )
         assert session_resp.status_code == 201
         session_id = session_resp.json()["id"]
 
@@ -552,6 +558,7 @@ def test_single_scope_supports_multiple_documents(
             json={
                 "scope_type": "single",
                 "document_ids": created_docs[:2],
+                "provider_id": provider_resp.json()["id"],
             },
         )
         assert session_resp.status_code == 201

@@ -36,11 +36,13 @@ def _load_app_modules(monkeypatch, tmp_path) -> SimpleNamespace:
         main=importlib.import_module("app.main"),
         database=importlib.import_module("app.core.database"),
         document_models=importlib.import_module("app.models.document"),
+        job_models=importlib.import_module("app.models.job"),
         provider_models=importlib.import_module("app.models.provider"),
         chat_models=importlib.import_module("app.models.chat"),
         documents_api=importlib.import_module("app.api.documents"),
         providers_api=importlib.import_module("app.api.providers"),
         chat_api=importlib.import_module("app.api.chat"),
+        parsing_task=importlib.import_module("app.services.parsing_task"),
     )
 
 

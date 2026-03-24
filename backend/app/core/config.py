@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     conversation_recent_messages: int = 8
     conversation_summary_chars: int = 1200
     conversation_history_char_budget: int = 3000
+    job_poll_seconds: float = 2.0
+    job_max_retries: int = 3
+    job_stale_seconds: int = 300
 
     # Server
     host: str = "0.0.0.0"

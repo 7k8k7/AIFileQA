@@ -34,7 +34,7 @@ import {
   useSetDefaultProvider,
   useDeleteProvider,
 } from '../../hooks';
-import type { ProviderConfig, ProviderType } from '../../types';
+import type { ProviderConfig, ProviderType, ProviderTestResult } from '../../types';
 import styles from './Settings.module.css';
 
 // ── Constants ──
@@ -366,11 +366,13 @@ function ProviderCard({
   onTest: () => void;
   onSetDefault: () => void;
   onDelete: () => void;
-  testState?: { loading: boolean; result?: { success: boolean; message: string } };
+  testState?: { loading: boolean; result?: ProviderTestResult };
 }) {
   const color = PROVIDER_COLORS[provider.provider_type];
   const typeInfo = PROVIDER_TYPES.find((t) => t.value === provider.provider_type);
   const capabilityCopy = getProviderCapabilityCopy(provider.provider_type, provider.enable_embedding);
+  const verificationLabel = provider.last_test_success ? '连接已验证' : '未验证或最近测试失败';
+  const isTesting = !!testState?.loading;
 
   return (
     <div className={styles.providerCard}>
@@ -397,8 +399,10 @@ function ProviderCard({
 
         <div className={styles.providerActions}>
           {/* Test connection */}
-          {testState?.loading ? (
-            <Spin size="small" />
+          {isTesting ? (
+            <span className={styles.testPending}>
+              <Spin size="small" /> 正在测试连接...
+            </span>
           ) : testState?.result ? (
             <span
               className={
@@ -431,6 +435,7 @@ function ProviderCard({
               size="small"
               icon={<EditOutlined />}
               onClick={onEdit}
+              disabled={isTesting}
             />
           </Tooltip>
 
@@ -441,6 +446,7 @@ function ProviderCard({
                 size="small"
                 icon={<StarOutlined />}
                 onClick={onSetDefault}
+                disabled={!provider.last_test_success || isTesting}
               />
             </Tooltip>
           )}
@@ -452,7 +458,7 @@ function ProviderCard({
               danger
               icon={<DeleteOutlined />}
               onClick={onDelete}
-              disabled={provider.is_default}
+              disabled={provider.is_default || isTesting}
             />
           </Tooltip>
         </div>
@@ -467,6 +473,12 @@ function ProviderCard({
         </span>
         <span className={styles.detailItem}>
           聊天: {provider.model_name}
+        </span>
+        <span className={styles.detailItem}>
+          <Tag color={provider.last_test_success ? 'green' : 'default'}>
+            {verificationLabel}
+          </Tag>
+          {provider.last_test_message ? ` ${provider.last_test_message}` : ''}
         </span>
         <span className={styles.detailItem}>
           Embedding: {provider.provider_type === 'claude' ? '不支持' : provider.enable_embedding ? provider.embedding_model : '已关闭'}
@@ -489,7 +501,7 @@ export default function SettingsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [testStates, setTestStates] = useState<
-    Record<string, { loading: boolean; result?: { success: boolean; message: string } }>
+    Record<string, { loading: boolean; result?: ProviderTestResult }>
   >({});
   const testTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -549,15 +561,28 @@ export default function SettingsPage() {
   // Test connection
   const handleTest = useCallback(
     (id: string) => {
+      const currentProvider = providers?.find((item) => item.id === id);
       // Clear any existing timer for this provider
       if (testTimersRef.current[id]) {
         clearTimeout(testTimersRef.current[id]);
         delete testTimersRef.current[id];
       }
       setTestStates((s) => ({ ...s, [id]: { loading: true } }));
+      msgApi.open({
+        key: `provider-test-${id}`,
+        type: 'loading',
+        content: '正在测试连接...',
+        duration: 0,
+      });
       testMutation.mutate(id, {
         onSuccess: (result) => {
           setTestStates((s) => ({ ...s, [id]: { loading: false, result } }));
+          msgApi.open({
+            key: `provider-test-${id}`,
+            type: result.success ? 'success' : 'error',
+            content: result.success ? '连接成功，已更新验证状态' : `连接失败：${result.message}`,
+            duration: 2,
+          });
           // Clear result after 5s
           testTimersRef.current[id] = setTimeout(() => {
             setTestStates((s) => {
@@ -569,14 +594,29 @@ export default function SettingsPage() {
           }, 5000);
         },
         onError: (err) => {
+          msgApi.open({
+            key: `provider-test-${id}`,
+            type: 'error',
+            content: `连接失败：${err.message}`,
+            duration: 2,
+          });
           setTestStates((s) => ({
             ...s,
-            [id]: { loading: false, result: { success: false, message: err.message } },
+            [id]: currentProvider
+              ? {
+                  loading: false,
+                  result: {
+                    success: false,
+                    message: err.message,
+                    provider: currentProvider,
+                  },
+                }
+              : { loading: false },
           }));
         },
       });
     },
-    [testMutation],
+    [msgApi, providers, testMutation],
   );
 
   // Set default
