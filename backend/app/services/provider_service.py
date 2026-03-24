@@ -1,10 +1,12 @@
 """Provider CRUD + test-connection service."""
 
 import httpx
+import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.provider import ProviderConfig
+from app.core.observability import summarize_provider
 from app.schemas.provider import (
     ProviderCreate,
     ProviderUpdate,
@@ -14,6 +16,8 @@ from app.schemas.provider import (
     validate_provider_values,
 )
 from app.services.provider_url import build_provider_url, normalize_provider_base_url
+
+logger = logging.getLogger(__name__)
 
 
 async def list_providers(db: AsyncSession) -> list[ProviderOut]:
@@ -68,6 +72,7 @@ async def create_provider(db: AsyncSession, data: ProviderCreate) -> ProviderCon
     db.add(provider)
     await db.flush()
     await db.refresh(provider)
+    logger.info("Provider created: %s default=%s", summarize_provider(provider), provider.is_default)
     return provider
 
 
@@ -102,6 +107,11 @@ async def update_provider(
 
     await db.flush()
     await db.refresh(provider)
+    logger.info(
+        "Provider updated: %s changed_fields=%s",
+        summarize_provider(provider),
+        ",".join(sorted(update_data.keys())) if update_data else "<none>",
+    )
     return provider
 
 
@@ -112,6 +122,7 @@ async def set_default_provider(db: AsyncSession, provider_id: str) -> bool:
     await _clear_defaults(db)
     provider.is_default = True
     await db.flush()
+    logger.info("Provider set as default: %s", summarize_provider(provider))
     return True
 
 
@@ -121,6 +132,7 @@ async def delete_provider(db: AsyncSession, provider_id: str) -> bool:
         return False
     if provider.is_default:
         raise ValueError("无法删除默认供应商，请先设置其他供应商为默认")
+    logger.info("Provider deleted: %s", summarize_provider(provider))
     await db.delete(provider)
     await db.flush()
     return True
@@ -146,6 +158,7 @@ async def test_connection(db: AsyncSession, provider_id: str) -> dict:
             headers["Authorization"] = f"Bearer {provider.api_key}"
 
     try:
+        logger.info("Provider connectivity test started: %s", summarize_provider(provider))
         async with httpx.AsyncClient(timeout=provider.timeout_seconds) as client:
             if provider.provider_type == "claude":
                 # Anthropic: minimal messages request
@@ -163,13 +176,26 @@ async def test_connection(db: AsyncSession, provider_id: str) -> dict:
                 resp = await client.get(url, headers=headers)
 
             if resp.status_code < 400:
+                logger.info("Provider connectivity test succeeded: %s", summarize_provider(provider))
                 return {"success": True, "message": "连接成功"}
             else:
                 body = resp.text[:200]
+                logger.warning(
+                    "Provider connectivity test failed: %s status=%s body=%s",
+                    summarize_provider(provider),
+                    resp.status_code,
+                    body,
+                )
                 return {"success": False, "message": f"HTTP {resp.status_code}: {body}"}
     except httpx.TimeoutException:
+        logger.warning("Provider connectivity test timed out: %s", summarize_provider(provider))
         return {"success": False, "message": "连接超时"}
     except Exception as e:
+        logger.warning(
+            "Provider connectivity test errored: %s error=%s",
+            summarize_provider(provider),
+            str(e)[:200],
+        )
         return {"success": False, "message": f"连接失败: {str(e)[:200]}"}
 
 

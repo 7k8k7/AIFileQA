@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 
 def _provider_payload(**overrides):
@@ -45,6 +48,21 @@ def test_list_masks_key_and_detail_returns_full_key(app_ctx):
     assert listed.json()[0]["api_key"] != "sk-secret-123456"
     assert detail.status_code == 200
     assert detail.json()["api_key"] == "sk-secret-123456"
+
+    async def _load_raw_provider():
+        async with app_ctx.database.async_session() as db:
+            provider = (
+                await db.execute(
+                    select(app_ctx.provider_models.ProviderConfig).where(
+                        app_ctx.provider_models.ProviderConfig.id == provider_id
+                    )
+                )
+            ).scalar_one()
+            return provider._api_key_encrypted
+
+    raw_value = asyncio.run(_load_raw_provider())
+    assert raw_value != "sk-secret-123456"
+    assert raw_value.startswith("enc:")
 
 
 def test_update_preserves_key_when_empty(app_ctx):

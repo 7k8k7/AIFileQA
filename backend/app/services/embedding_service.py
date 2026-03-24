@@ -15,6 +15,7 @@ import logging
 import httpx
 
 from app.models.provider import ProviderConfig
+from app.core.observability import summarize_provider
 from app.services.provider_url import build_provider_url, normalize_provider_base_url
 
 logger = logging.getLogger(__name__)
@@ -45,8 +46,8 @@ async def generate_embeddings(
     embedding_model = get_embedding_model(provider)
     if not embedding_model:
         logger.info(
-            "Provider %s does not support or has disabled embedding, skipping vectorization",
-            provider.id,
+            "Embedding skipped: %s",
+            summarize_provider(provider),
         )
         return [None] * len(texts)
 
@@ -64,6 +65,12 @@ async def generate_embeddings(
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         try:
+            logger.info(
+                "Embedding batch started: %s batch_start=%d batch_size=%d",
+                summarize_provider(provider),
+                i,
+                len(batch),
+            )
             async with httpx.AsyncClient(timeout=60) as client:
                 resp = await client.post(url, headers=headers, json={
                     "model": embedding_model,
@@ -78,9 +85,20 @@ async def generate_embeddings(
                     if idx < len(embeddings):
                         embeddings[idx] = item.get("embedding")
                 results.extend(embeddings)
+                logger.info(
+                    "Embedding batch succeeded: %s batch_start=%d generated=%d",
+                    summarize_provider(provider),
+                    i,
+                    sum(1 for item in embeddings if item is not None),
+                )
 
         except Exception as e:
-            logger.warning("Embedding batch %d failed: %s", i, str(e)[:200])
+            logger.warning(
+                "Embedding batch failed: %s batch_start=%d error=%s",
+                summarize_provider(provider),
+                i,
+                str(e)[:200],
+            )
             results.extend([None] * len(batch))
 
     return results
@@ -98,4 +116,3 @@ def deserialize_embedding(data: str | None) -> list[float] | None:
     if not data:
         return None
     return json.loads(data)
-

@@ -2,6 +2,11 @@
 
 智能文档问答助手后端，基于 FastAPI + SQLAlchemy async + SQLite + ChromaDB。
 
+项目级启动和验收入口见：
+
+- [README.md](/d:/documentD/works/AgenticEngineering/FileManagement/README.md)
+- [docs/deployment.md](/d:/documentD/works/AgenticEngineering/FileManagement/docs/deployment.md)
+
 ## 技术栈
 
 | 层 | 选型 |
@@ -102,7 +107,10 @@ python -m pytest tests -q
 |---|---|---|
 | `APP_NAME` | `DocQA` | 应用名称 |
 | `DEBUG` | `true` | 调试模式；建议只填 `true/false` |
+| `LOG_LEVEL` | `INFO` | 日志级别，例如 `DEBUG / INFO / WARNING` |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./data/docqa.db` | 数据库连接串 |
+| `PROVIDER_SECRET_KEY` | 空 | Provider 密钥加密所用的 Fernet 主密钥；生产环境建议显式配置 |
+| `PROVIDER_SECRET_FILE` | `./data/provider_secret.key` | 未配置 `PROVIDER_SECRET_KEY` 时，本地自动生成并持久化的密钥文件 |
 | `UPLOAD_DIR` | `./uploads` | 上传文件目录 |
 | `VECTOR_STORE_DIR` | `./data/chroma` | ChromaDB 本地存储目录 |
 | `MAX_UPLOAD_SIZE_MB` | `50` | 单文件大小限制 |
@@ -233,6 +241,35 @@ Provider 配置补充说明：
 | `GET` | `/api/chat/sessions/{id}/messages` | 消息历史 |
 | `POST` | `/api/chat/sessions/{id}/messages` | 发送消息，SSE 流式返回 |
 | `POST` | `/api/chat/sessions/{id}/messages/{message_id}/regenerate` | 重新生成最后一条助手回复 |
+
+### 可观测性
+
+当前后端已经补充了基础运行日志，默认会记录：
+
+- 启动和关闭
+- provider 创建、更新、设为默认、连通性测试
+- 文档解析和 embedding 生成
+- 检索命中的文档片段摘要、检索方式、回退原因
+- 聊天流开始、结束、保存失败、重新生成
+
+说明：
+- 日志里不会输出完整 `api_key`
+- 可通过 `LOG_LEVEL=DEBUG` 提高排查细节
+
+### 数据安全
+
+当前版本已经对 provider 的 `api_key` 做了存储加密：
+
+- 写入数据库前会自动加密
+- 读取时会自动解密，上层业务代码无需手动处理
+- 旧的明文数据仍可兼容读取，避免升级后立即失效
+- 日志中不会打印完整 `api_key`
+
+建议：
+
+- 本地开发可直接使用自动生成的 `PROVIDER_SECRET_FILE`
+- 生产或演示环境建议显式配置固定的 `PROVIDER_SECRET_KEY`
+- 如果更换了主密钥，旧数据将无法解密，因此不要随意变更
 
 SSE 事件格式：
 

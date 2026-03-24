@@ -2,6 +2,11 @@
 
 智能文档问答助手前端，基于 React + Vite + Ant Design，已接入真实后端 API。
 
+项目级启动和验收入口见：
+
+- [README.md](/d:/documentD/works/AgenticEngineering/FileManagement/README.md)
+- [docs/deployment.md](/d:/documentD/works/AgenticEngineering/FileManagement/docs/deployment.md)
+
 ## 技术栈
 
 | 层 | 技术 |

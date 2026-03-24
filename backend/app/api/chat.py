@@ -1,6 +1,7 @@
 """Chat API endpoints — sessions, messages, SSE streaming."""
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -30,9 +31,11 @@ from app.services.chat_service import (
 from app.services.llm_service import get_default_provider, stream_chat_completion
 from app.services.provider_service import get_provider
 from app.services.retrieval_service import build_rag_prompt
+from app.core.observability import clip_text, summarize_chunks, summarize_provider
 
 router = APIRouter(tags=["chat"])
 REGENERATE_FEEDBACK = "用户对你刚刚的回答不满意。请重新回答同一个问题，明确修正问题，不要只是换个说法重复原答案。"
+logger = logging.getLogger(__name__)
 
 
 # ── Sessions ──
@@ -109,6 +112,13 @@ async def send_message(
         provider = await get_default_provider(db)
     if not provider:
         raise HTTPException(status_code=400, detail="请先在设置中配置模型供应商")
+    logger.info(
+        "Chat send started: session_id=%s scope=%s provider=%s question=%s",
+        session_id,
+        session.scope_type,
+        summarize_provider(provider),
+        clip_text(body.content),
+    )
 
     # Persist user message immediately so the frontend can refresh and render it.
     user_message = await save_user_message(db, session_id, body.content)
@@ -122,6 +132,12 @@ async def send_message(
         scope_type=session.scope_type,
         document_id=session.document_id,
         document_ids=json.loads(session.document_ids_json) if session.document_ids_json else None,
+    )
+    logger.info(
+        "Chat retrieval prepared: session_id=%s method=%s %s",
+        session_id,
+        rag_result.retrieval_method,
+        summarize_chunks(rag_result.chunks),
     )
 
     # Fetch conversation history after the user message is committed.
@@ -162,6 +178,12 @@ async def send_message(
                         pass
                 yield sse_line
         except Exception as e:
+            logger.warning(
+                "Chat stream failed: session_id=%s provider=%s error=%s",
+                session_id,
+                summarize_provider(provider),
+                str(e)[:300],
+            )
             error_event = f"data: {json.dumps({'type': 'error', 'content': str(e)[:300]}, ensure_ascii=False)}\n\n"
             yield error_event
             return
@@ -179,9 +201,20 @@ async def send_message(
                     },
                 )
                 await persist_db.commit()
+                logger.info(
+                    "Chat stream completed: session_id=%s assistant_message_id=%s chars=%d",
+                    session_id,
+                    assistant_msg.id,
+                    len(full_content),
+                )
                 done_event = f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg.id}, ensure_ascii=False)}\n\n"
                 yield done_event
             except Exception as e:
+                logger.exception(
+                    "Chat assistant message persistence failed: session_id=%s error=%s",
+                    session_id,
+                    str(e)[:200],
+                )
                 error_event = f"data: {json.dumps({'type': 'error', 'content': f'保存助手消息失败：{str(e)[:200]}'}, ensure_ascii=False)}\n\n"
                 yield error_event
 
@@ -232,6 +265,13 @@ async def regenerate_message(
         provider = await get_default_provider(db)
     if not provider:
         raise HTTPException(status_code=400, detail="请先在设置中配置模型供应商")
+    logger.info(
+        "Chat regenerate started: session_id=%s message_id=%s provider=%s feedback=%s",
+        session_id,
+        message_id,
+        summarize_provider(provider),
+        clip_text(body.feedback or REGENERATE_FEEDBACK),
+    )
 
     rag_result = await build_rag_prompt(
         db,
@@ -283,6 +323,12 @@ async def regenerate_message(
                         pass
                 yield sse_line
         except Exception as e:
+            logger.warning(
+                "Chat regenerate stream failed: session_id=%s message_id=%s error=%s",
+                session_id,
+                message_id,
+                str(e)[:300],
+            )
             error_event = f"data: {json.dumps({'type': 'error', 'content': str(e)[:300]}, ensure_ascii=False)}\n\n"
             yield error_event
             return
@@ -301,9 +347,22 @@ async def regenerate_message(
                 if not updated_msg:
                     raise ValueError("原助手消息不存在")
                 await persist_db.commit()
+                logger.info(
+                    "Chat regenerate completed: session_id=%s message_id=%s chars=%d method=%s",
+                    session_id,
+                    updated_msg.id,
+                    len(full_content),
+                    rag_result.retrieval_method,
+                )
                 done_event = f"data: {json.dumps({'type': 'done', 'message_id': updated_msg.id}, ensure_ascii=False)}\n\n"
                 yield done_event
             except Exception as e:
+                logger.exception(
+                    "Chat regenerate persistence failed: session_id=%s message_id=%s error=%s",
+                    session_id,
+                    message_id,
+                    str(e)[:200],
+                )
                 error_event = f"data: {json.dumps({'type': 'error', 'content': f'更新助手消息失败：{str(e)[:200]}'}, ensure_ascii=False)}\n\n"
                 yield error_event
 

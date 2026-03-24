@@ -11,6 +11,7 @@ import pytest
 
 
 os.environ["DEBUG"] = "true"
+os.environ["PROVIDER_SECRET_KEY"] = "5dPAlWTMwVzKhI1-w4n1vCtbmZh9rqx8pFazc2DSES0="
 
 
 def _load_app_modules(monkeypatch, tmp_path) -> SimpleNamespace:
@@ -18,11 +19,14 @@ def _load_app_modules(monkeypatch, tmp_path) -> SimpleNamespace:
     db_path = (tmp_path / "test.db").as_posix()
     upload_dir = (tmp_path / "uploads").as_posix()
     vector_dir = (tmp_path / "chroma").as_posix()
+    secret_file = (tmp_path / "provider_secret.key").as_posix()
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
     monkeypatch.setenv("UPLOAD_DIR", upload_dir)
     monkeypatch.setenv("VECTOR_STORE_DIR", vector_dir)
     monkeypatch.setenv("DEBUG", "true")
+    monkeypatch.setenv("PROVIDER_SECRET_KEY", "5dPAlWTMwVzKhI1-w4n1vCtbmZh9rqx8pFazc2DSES0=")
+    monkeypatch.setenv("PROVIDER_SECRET_FILE", secret_file)
 
     for name in list(sys.modules):
         if name == "app" or name.startswith("app."):

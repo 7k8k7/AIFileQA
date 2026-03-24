@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.observability import summarize_chunks, summarize_provider
 from app.models.document import Document, DocumentChunk
 from app.models.provider import ProviderConfig
 from app.services.embedding_service import (
@@ -70,7 +71,12 @@ async def retrieve_chunks(
         logger.info("RAG: no candidate docs (scope=%s, doc_id=%s)", scope_type, document_id)
         return [], "none"
 
-    logger.info("RAG: %d candidate doc(s) for scope=%s", len(doc_ids), scope_type)
+    logger.info(
+        "RAG: candidate docs resolved scope=%s count=%d provider=%s",
+        scope_type,
+        len(doc_ids),
+        summarize_provider(provider),
+    )
     candidate_top_k = max(top_k, ceil(top_k * max(settings.retrieval_candidate_multiplier, 1)))
 
     if provider is None:
@@ -94,12 +100,25 @@ async def retrieve_chunks(
             )
             logger.info("RAG: vector retrieval returned %d chunk(s)", len(vector_rows))
         except Exception as e:
-            logger.warning("Vector retrieval failed, falling back to keyword: %s", str(e)[:200])
+            logger.warning(
+                "RAG: vector retrieval failed, falling back to keyword provider=%s error=%s",
+                summarize_provider(provider),
+                str(e)[:200],
+            )
+    elif provider:
+        logger.info("RAG: provider will use keyword retrieval directly: %s", summarize_provider(provider))
+    else:
+        logger.info("RAG: no provider configured, using keyword retrieval only")
 
     logger.info("RAG: keyword retrieval returned %d chunk(s)", len(keyword_rows))
 
     results, method = _merge_retrieval_results(vector_rows, keyword_rows, top_k=top_k)
-    logger.info("RAG: merged retrieval returned %d chunk(s), method=%s", len(results), method)
+    logger.info(
+        "RAG: merged retrieval returned %d chunk(s), method=%s %s",
+        len(results),
+        method,
+        summarize_chunks(results),
+    )
     return results, method
 
 
@@ -244,6 +263,11 @@ async def _ensure_provider_embeddings(
         return
 
     missing_chunks = [chunk for chunk in chunks if chunk.id in missing_ids]
+    logger.info(
+        "RAG: generating missing embeddings provider=%s missing_chunks=%d",
+        summarize_provider(provider),
+        len(missing_chunks),
+    )
     raw_embeddings = await generate_embeddings(provider, [chunk.content for chunk in missing_chunks])
 
     records = [

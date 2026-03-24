@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.observability import summarize_provider
 from app.models.provider import ProviderConfig
 from app.models.chat import ChatMessage
 from app.services.provider_url import build_provider_url, normalize_provider_base_url
@@ -65,6 +66,13 @@ async def stream_chat_completion(
 
     url = normalize_provider_base_url(provider.base_url)
     headers: dict[str, str] = {"Content-Type": "application/json"}
+    logger.info(
+        "LLM request started: %s recent_messages=%d current_user_chars=%d summary_chars=%d",
+        summarize_provider(provider),
+        len(recent_messages),
+        len(user_content),
+        len(summary_text or ""),
+    )
 
     if provider.provider_type == "claude":
         # ── Anthropic Messages API ──

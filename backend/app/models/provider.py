@@ -5,6 +5,7 @@ from sqlalchemy import String, Float, Integer, Boolean, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.security import decrypt_provider_secret, encrypt_provider_secret
 
 
 def _utcnow() -> datetime:
@@ -22,7 +23,7 @@ class ProviderConfig(Base):
     )  # openai | claude | openai_compatible
     base_url: Mapped[str] = mapped_column(String(512), nullable=False)
     model_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    api_key: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    _api_key_encrypted: Mapped[str] = mapped_column("api_key", String(512), nullable=False, default="")
     embedding_model: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     enable_embedding: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.7)
@@ -33,3 +34,11 @@ class ProviderConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
+
+    @property
+    def api_key(self) -> str:
+        return decrypt_provider_secret(self._api_key_encrypted)
+
+    @api_key.setter
+    def api_key(self, value: str) -> None:
+        self._api_key_encrypted = encrypt_provider_secret(value or "")

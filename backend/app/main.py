@@ -1,20 +1,32 @@
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
+from app.core.observability import configure_logging
+
+configure_logging(settings.log_level)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup: create tables (dev convenience — production uses alembic)
+    logger.info(
+        "Application starting: app=%s debug=%s database=%s",
+        settings.app_name,
+        settings.debug,
+        settings.database_url.split("://", 1)[0],
+    )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
     # Shutdown
+    logger.info("Application shutting down: app=%s", settings.app_name)
     await engine.dispose()
 
 

@@ -14,9 +14,12 @@ class Settings(BaseSettings):
     # App
     app_name: str = "DocQA"
     debug: bool = False
+    log_level: str = "INFO"
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./data/docqa.db"
+    provider_secret_key: str = ""
+    provider_secret_file: str = "./data/provider_secret.key"
 
     # File storage
     upload_dir: str = "./uploads"
@@ -50,6 +53,14 @@ class Settings(BaseSettings):
         if not p.is_absolute():
             p = BASE_DIR / p
         p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def provider_secret_path(self) -> Path:
+        p = Path(self.provider_secret_file)
+        if not p.is_absolute():
+            p = BASE_DIR / p
+        p.parent.mkdir(parents=True, exist_ok=True)
         return p
 
     @property
