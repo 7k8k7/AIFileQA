@@ -1,28 +1,49 @@
-import type { ThemeConfig } from 'antd';
+import { theme, type ThemeConfig } from 'antd';
+
+const sharedToken: ThemeConfig['token'] = {
+  colorPrimary: '#1677FF',
+  colorSuccess: '#52C41A',
+  colorWarning: '#FAAD14',
+  colorError: '#FF4D4F',
+  colorInfo: '#1677FF',
+  borderRadius: 8,
+  fontFamily:
+    "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif",
+  fontSize: 14,
+  controlHeight: 36,
+};
 
 /**
- * Ant Design ConfigProvider theme — maps DESIGN.md tokens to antd v5 theme API.
+ * Ant Design ConfigProvider theme — light mode.
  */
-export const antdTheme: ThemeConfig = {
+export const antdLightTheme: ThemeConfig = {
   token: {
-    colorPrimary: '#1677FF',
+    ...sharedToken,
     colorBgLayout: '#FAFAFA',
     colorText: '#1F1F1F',
     colorTextSecondary: '#8C8C8C',
     colorTextTertiary: '#BFBFBF',
     colorBorder: '#F0F0F0',
     colorBorderSecondary: '#D9D9D9',
-    colorSuccess: '#52C41A',
-    colorWarning: '#FAAD14',
-    colorError: '#FF4D4F',
-    colorInfo: '#1677FF',
-    borderRadius: 8,
-    fontFamily:
-      "-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif",
-    fontSize: 14,
-    controlHeight: 36,
-    boxShadow:
-      '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+  },
+};
+
+/**
+ * Ant Design ConfigProvider theme — dark mode.
+ */
+export const antdDarkTheme: ThemeConfig = {
+  algorithm: theme.darkAlgorithm,
+  token: {
+    ...sharedToken,
+    colorPrimary: '#3B8BFF',
+    colorBgLayout: '#0A0A0B',
+    colorText: '#E8E8EA',
+    colorTextSecondary: '#8C8C90',
+    colorTextTertiary: '#4A4A4E',
+    colorBorder: '#2A2A2E',
+    colorBorderSecondary: '#3A3A3E',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
   },
 };
 

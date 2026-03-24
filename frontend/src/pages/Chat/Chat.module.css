@@ -460,7 +460,31 @@
 }
 
 /* ═══════════════════════════════
-   RESPONSIVE
+   DARK MODE
+   ═══════════════════════════════ */
+[data-theme='dark'] .sidebar {
+  background: var(--color-surface);
+}
+
+[data-theme='dark'] .msgUser .msgAvatar {
+  background: var(--color-primary-active);
+}
+
+/* ═══════════════════════════════
+   RESPONSIVE — Tablet
+   ═══════════════════════════════ */
+@media (max-width: 1279px) {
+  .page {
+    grid-template-columns: 220px 1fr;
+  }
+
+  .msg {
+    max-width: 90%;
+  }
+}
+
+/* ═══════════════════════════════
+   RESPONSIVE — Mobile
    ═══════════════════════════════ */
 @media (max-width: 768px) {
   .page {
@@ -473,5 +497,17 @@
 
   .inputArea {
     padding: var(--space-sm) var(--space-md);
+  }
+
+  .msg {
+    max-width: 95%;
+  }
+
+  .chatHeader {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .messages {
+    padding: var(--space-md);
   }
 }

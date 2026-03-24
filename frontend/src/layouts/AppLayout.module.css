@@ -101,7 +101,21 @@
 
 /* ── Right Actions ── */
 .actions {
-  width: 100px; /* balance with logo on left */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 100px;
+}
+
+.themeBtn {
+  font-size: 16px !important;
+  color: var(--color-text-secondary) !important;
+  transition: all var(--duration-fast) var(--ease-out) !important;
+}
+
+.themeBtn:hover {
+  color: var(--color-text) !important;
+  background: var(--color-primary-05) !important;
 }
 
 /* ═══════ Main Content ═══════ */
@@ -110,7 +124,14 @@
   min-height: 100vh;
 }
 
-/* ═══════ Responsive ═══════ */
+/* ═══════ Responsive — Tablet ═══════ */
+@media (max-width: 1279px) {
+  .navInner {
+    padding: 0 var(--space-lg);
+  }
+}
+
+/* ═══════ Responsive — Mobile ═══════ */
 @media (max-width: 768px) {
   .navInner {
     padding: 0 var(--space-md);
@@ -130,6 +151,6 @@
   }
 
   .actions {
-    width: auto;
+    min-width: auto;
   }
 }

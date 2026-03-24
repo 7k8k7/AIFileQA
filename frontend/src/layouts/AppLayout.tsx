@@ -1,9 +1,13 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Button, Tooltip } from 'antd';
 import {
   FileTextOutlined,
   MessageOutlined,
   SettingOutlined,
+  SunOutlined,
+  MoonOutlined,
 } from '@ant-design/icons';
+import { useThemeStore } from '../stores/themeStore';
 import styles from './AppLayout.module.css';
 
 const navItems = [
@@ -15,6 +19,7 @@ const navItems = [
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { theme, toggleTheme } = useThemeStore();
 
   return (
     <div className={styles.root}>
@@ -46,8 +51,17 @@ export default function AppLayout() {
             ))}
           </ul>
 
-          {/* Spacer for right side actions (future: theme toggle, user menu) */}
-          <div className={styles.actions} />
+          {/* Theme toggle */}
+          <div className={styles.actions}>
+            <Tooltip title={theme === 'light' ? '切换暗色模式' : '切换亮色模式'}>
+              <Button
+                type="text"
+                className={styles.themeBtn}
+                icon={theme === 'light' ? <MoonOutlined /> : <SunOutlined />}
+                onClick={toggleTheme}
+              />
+            </Tooltip>
+          </div>
         </div>
       </nav>
 

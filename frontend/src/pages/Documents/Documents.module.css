@@ -142,6 +142,19 @@
   color: var(--color-text-secondary);
 }
 
+/* Dark mode file icon tints */
+[data-theme='dark'] .fileIconPdf {
+  background: rgba(255, 77, 79, 0.12);
+}
+
+[data-theme='dark'] .fileIconDoc {
+  background: rgba(59, 139, 255, 0.12);
+}
+
+[data-theme='dark'] .fileIconMd {
+  background: rgba(82, 196, 26, 0.12);
+}
+
 .fileNameText {
   font-weight: 500;
   font-size: var(--font-size-sm);
@@ -189,10 +202,24 @@
   margin-bottom: var(--space-lg);
 }
 
-/* ═══════ Responsive ═══════ */
+/* ═══════ Responsive — Tablet ═══════ */
+@media (max-width: 1279px) {
+  .page {
+    max-width: 100%;
+    padding: var(--space-lg);
+  }
+}
+
+/* ═══════ Responsive — Mobile ═══════ */
 @media (max-width: 768px) {
   .page {
     padding: var(--space-md);
+  }
+
+  .headerRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
   }
 
   .toolbar {
@@ -206,5 +233,14 @@
 
   .docCount {
     text-align: right;
+  }
+
+  .uploadZone {
+    margin-bottom: var(--space-md);
+  }
+
+  .tableWrap {
+    border-radius: var(--radius-md);
+    overflow-x: auto;
   }
 }

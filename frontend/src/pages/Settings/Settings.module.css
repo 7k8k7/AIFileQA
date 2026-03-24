@@ -109,6 +109,12 @@
   border-radius: var(--radius-full);
 }
 
+[data-theme='dark'] .defaultBadge {
+  color: #D89614;
+  background: rgba(216, 150, 20, 0.12);
+  border-color: rgba(216, 150, 20, 0.25);
+}
+
 .providerModel {
   font-size: var(--font-size-xs);
   font-family: var(--font-code);
@@ -234,7 +240,22 @@
   gap: var(--space-lg);
 }
 
-/* ═══════ Responsive ═══════ */
+/* ═══════ Responsive — Tablet ═══════ */
+@media (max-width: 1279px) {
+  .page {
+    padding: var(--space-lg);
+  }
+
+  .content {
+    max-width: 100%;
+  }
+
+  .providerList {
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  }
+}
+
+/* ═══════ Responsive — Mobile ═══════ */
 @media (max-width: 768px) {
   .page {
     padding: var(--space-md);
