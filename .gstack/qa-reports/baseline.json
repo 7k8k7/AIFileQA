@@ -1,0 +1,21 @@
+{
+  "date": "2026-03-25",
+  "url": "http://localhost:8080",
+  "healthScore": 95,
+  "issues": [
+    { "id": "ISSUE-001", "title": "Chat sidebar inaccessible on mobile", "severity": "high", "category": "functional", "status": "fixed" },
+    { "id": "ISSUE-002", "title": "Google Fonts link missing from index.html", "severity": "medium", "category": "visual", "status": "fixed" },
+    { "id": "ISSUE-003", "title": "Document actions menu only has Delete", "severity": "low", "category": "ux", "status": "deferred" },
+    { "id": "ISSUE-004", "title": "Ant Design deprecation warning", "severity": "low", "category": "console", "status": "deferred" }
+  ],
+  "categoryScores": {
+    "console": 70,
+    "links": 100,
+    "visual": 100,
+    "functional": 100,
+    "ux": 97,
+    "performance": 100,
+    "content": 100,
+    "accessibility": 97
+  }
+}

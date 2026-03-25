@@ -1,0 +1,7 @@
+[2026-03-25T05:51:53.910Z] [debug] [vite] connecting...
+[2026-03-25T05:51:54.337Z] [info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[2026-03-25T05:51:54.506Z] [debug] [vite] connected.
+[2026-03-25T05:51:54.643Z] [error] Warning: [antd: Modal] `destroyOnClose` is deprecated. Please use `destroyOnHidden` instead.
+[2026-03-25T05:52:38.957Z] [debug] [vite] connecting...
+[2026-03-25T05:52:39.006Z] [info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+[2026-03-25T05:52:39.362Z] [debug] [vite] connected.

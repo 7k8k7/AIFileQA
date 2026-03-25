@@ -76,13 +76,11 @@ python scripts/verify_stack.py --frontend-url http://localhost:5173 --backend-ur
 7. 确认回答能返回，且来源面板能展开查看片段
 
 ## 文档入口
-
-- 总体优化建议：[docs/optimization.md](/d:/documentD/works/AgenticEngineering/FileManagement/docs/optimization.md)
-- 测试说明：[docs/test.md](/d:/documentD/works/AgenticEngineering/FileManagement/docs/test.md)
-- 产品需求：[docs/prd.md](/d:/documentD/works/AgenticEngineering/FileManagement/docs/prd.md)
-- 技术方案：[docs/tech.md](/d:/documentD/works/AgenticEngineering/FileManagement/docs/tech.md)
-- 后端说明：[backend/README.md](/d:/documentD/works/AgenticEngineering/FileManagement/backend/README.md)
-- 前端说明：[frontend/README.md](/d:/documentD/works/AgenticEngineering/FileManagement/frontend/README.md)
+- 测试说明：[docs/test.md](/docs/test.md)
+- 产品需求：[docs/prd.md](/docs/prd.md)
+- 技术方案：[docs/tech.md](/docs/tech.md)
+- 后端说明：[backend/README.md](backend/README.md)
+- 前端说明：[frontend/README.md](/frontend/README.md)
 
 ## 常用命令
 
