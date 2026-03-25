@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db, async_session
 from app.schemas.chat import (
     SessionCreate,
+    SessionUpdate,
     SessionOut,
     MessageOut,
     MessageSend,
@@ -21,6 +22,7 @@ from app.services.chat_service import (
     list_sessions,
     get_session,
     create_session,
+    rename_session,
     delete_session,
     list_messages,
     get_message,
@@ -56,6 +58,19 @@ async def add_session(
         session = await create_session(db, data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return session_to_out(session)
+
+
+@router.patch("/api/chat/sessions/{session_id}", response_model=SessionOut)
+@router.patch("/api/sessions/{session_id}", response_model=SessionOut, include_in_schema=False)
+async def update_session(
+    session_id: str,
+    data: SessionUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    session = await rename_session(db, session_id, data.title)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
     return session_to_out(session)
 
 

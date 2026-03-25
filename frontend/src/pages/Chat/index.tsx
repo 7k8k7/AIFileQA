@@ -3,6 +3,7 @@ import { Button, Modal, Radio, Select, Input, Skeleton, App, Tag, Tooltip, Descr
 import {
   PlusOutlined,
   DeleteOutlined,
+  EditOutlined,
   SendOutlined,
   ReloadOutlined,
   MessageOutlined,
@@ -24,6 +25,7 @@ import rehypeSanitize from 'rehype-sanitize';
 import {
   useSessions,
   useCreateSession,
+  useRenameSession,
   useDeleteSession,
   useMessages,
   useInvalidateMessages,
@@ -307,7 +309,47 @@ export default function ChatPage() {
   const { data: docsData } = useDocuments();
   const invalidateMessages = useInvalidateMessages();
   const createMutation = useCreateSession();
+  const renameMutation = useRenameSession();
   const deleteMutation = useDeleteSession();
+
+  // Rename state
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  const handleStartRename = useCallback((id: string, currentTitle: string) => {
+    setRenamingId(id);
+    setRenameValue(currentTitle);
+  }, []);
+
+  const handleConfirmRename = useCallback(() => {
+    if (!renamingId) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setRenamingId(null);
+      return;
+    }
+    renameMutation.mutate(
+      { id: renamingId, title: trimmed },
+      {
+        onSuccess: () => {
+          setRenamingId(null);
+          msgApi.success('会话已重命名');
+        },
+      },
+    );
+  }, [renamingId, renameValue, renameMutation, msgApi]);
+
+  const handleCancelRename = useCallback(() => {
+    setRenamingId(null);
+  }, []);
+
+  useEffect(() => {
+    if (renamingId) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [renamingId]);
 
   // Auto-select first session
   useEffect(() => {
@@ -557,21 +599,52 @@ export default function ChatPage() {
                 key={s.id}
                 className={`${styles.sessionItem} ${s.id === activeSessionId ? styles.sessionActive : ''}`}
                 onClick={() => { setActiveSession(s.id); setMobileSidebarOpen(false); }}
+                onDoubleClick={() => handleStartRename(s.id, s.title)}
               >
                 <div className={styles.sessionTop}>
-                  <span className={styles.sessionTitle}>{s.title}</span>
-                  <Tooltip title="删除会话">
-                    <Button
-                      type="text"
-                      size="small"
-                      className={styles.sessionDelete}
-                      icon={<DeleteOutlined />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteSession(s.id);
+                  {renamingId === s.id ? (
+                    <input
+                      ref={renameInputRef}
+                      className={styles.sessionRenameInput}
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={handleConfirmRename}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleConfirmRename();
+                        if (e.key === 'Escape') handleCancelRename();
                       }}
+                      onClick={(e) => e.stopPropagation()}
+                      maxLength={255}
                     />
-                  </Tooltip>
+                  ) : (
+                    <span className={styles.sessionTitle}>{s.title}</span>
+                  )}
+                  <div className={styles.sessionActions}>
+                    <Tooltip title="重命名">
+                      <Button
+                        type="text"
+                        size="small"
+                        className={styles.sessionActionBtn}
+                        icon={<EditOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStartRename(s.id, s.title);
+                        }}
+                      />
+                    </Tooltip>
+                    <Tooltip title="删除会话">
+                      <Button
+                        type="text"
+                        size="small"
+                        className={styles.sessionActionBtn}
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSession(s.id);
+                        }}
+                      />
+                    </Tooltip>
+                  </div>
                 </div>
                 <span className={styles.sessionTime}>{formatTime(s.updated_at)}</span>
               </div>

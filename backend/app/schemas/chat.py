@@ -22,6 +22,10 @@ class SessionCreate(BaseModel):
         return self
 
 
+class SessionUpdate(BaseModel):
+    title: str
+
+
 class SessionOut(BaseModel):
     id: str
     title: str

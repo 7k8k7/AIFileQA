@@ -44,6 +44,29 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # ── 非兼容接口适配代理（按需启用） ──
+  # 把 HuggingFace TGI 等非 OpenAI 兼容 API 翻译成 OpenAI 格式。
+  # 1. 复制 adapter-proxy/config.example.yaml → adapter-proxy/config.yaml
+  # 2. 取消下面的注释
+  # 3. 在 DocQA 设置页添加 openai_compatible provider，base_url 填 http://adapter-proxy:11435
+  #
+  # adapter-proxy:
+  #   build:
+  #     context: ./adapter-proxy
+  #     dockerfile: Dockerfile
+  #   image: docqa-adapter-proxy:latest
+  #   volumes:
+  #     - ./adapter-proxy/config.yaml:/app/config.yaml:ro
+  #   ports:
+  #     - "11435:11435"
+  #   healthcheck:
+  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:11435/health', timeout=5).read()"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 3
+  #     start_period: 5s
+  #   restart: unless-stopped
+
 volumes:
   backend_data:
   backend_uploads:

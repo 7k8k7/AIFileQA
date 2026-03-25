@@ -137,6 +137,7 @@ VITE_API_BASE_URL=http://localhost:8000/api
 - Provider 表单同时支持聊天模型和 embedding 模型分开配置
 - `openai` / `claude` 的 `api_key` 必填；`openai_compatible` 连接本地模型时可留空
 - `claude` 的 embedding 开关会自动禁用
+- 非 OpenAI 兼容的本地模型（如 HuggingFace TGI）可通过 adapter-proxy 翻译后接入，前端选择 `openai_compatible` 类型即可
 
 ### 聊天服务
 
@@ -192,7 +193,7 @@ src/
 
 - `Documents`：文档上传、列表、搜索、删除
 - `Chat`：会话管理、provider 选择、多文档范围选择、流式对话、来源查看、重新生成
-- `Settings`：供应商管理、连接测试、聊天模型 / Embedding 模型分开配置
+- `Settings`：供应商管理、连接测试、聊天模型 / Embedding 模型分开配置（支持通过 adapter-proxy 接入非兼容本地模型）
 
 ## 设计
 

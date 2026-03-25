@@ -33,6 +33,7 @@
 4. 本地文件存储：保存原始上传文档，挂载 Docker volume。
 5. ChromaDB：保存按 Provider 隔离的文档向量索引。
 6. 外部 AI Provider：OpenAI、Claude、兼容 OpenAI API 的本地模型服务。
+7. Adapter Proxy（可选）：将非 OpenAI 兼容的本地模型 API（如 HuggingFace TGI、自定义推理服务）翻译为 OpenAI 格式，详见 `adapter-proxy/README.md`。
 
 ### 2.2 逻辑架构
 
@@ -52,6 +53,7 @@
 4. 文档解析、切片、Embedding、索引构建采用应用内异步任务，使用 `concurrent.futures.ProcessPoolExecutor` 在独立进程中执行 CPU 密集型解析，避免阻塞主事件循环。不单独引入 Worker 和消息队列。
 5. 检索方式采用 SQLite 元数据 + ChromaDB 本地向量库，问答链路采用“文档过滤 + 混合检索 + 上下文拼装 + LLM 生成”。
 6. Embedding 跟随 Provider 配置，优先使用会话绑定 Provider 的 `embedding_model`；若不支持或调用失败，则自动回退关键词检索。
+8. 非 OpenAI 兼容的本地推理服务，通过独立的 adapter-proxy 薄代理翻译为 OpenAI 格式后，仍使用 `openai_compatible` 类型接入，后端和前端无需任何改动。
 7. 问答响应采用 SSE（Server-Sent Events）流式输出，前端逐字渲染。
 
 ## 3. 模块划分与职责

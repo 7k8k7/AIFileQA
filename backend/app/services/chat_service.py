@@ -80,6 +80,17 @@ async def create_session(db: AsyncSession, data: SessionCreate) -> ChatSession:
     return session
 
 
+async def rename_session(db: AsyncSession, session_id: str, title: str) -> ChatSession | None:
+    session = await get_session(db, session_id)
+    if not session:
+        return None
+    session.title = title.strip()[:255]
+    session.updated_at = _utcnow()
+    await db.flush()
+    await db.refresh(session)
+    return session
+
+
 async def delete_session(db: AsyncSession, session_id: str) -> bool:
     session = await get_session(db, session_id)
     if not session:

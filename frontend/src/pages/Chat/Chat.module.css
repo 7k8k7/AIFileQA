@@ -97,20 +97,38 @@
   min-width: 0;
 }
 
-.sessionDelete {
+.sessionActions {
+  display: flex;
+  gap: 2px;
   opacity: 0;
   flex-shrink: 0;
-  font-size: 11px;
-  color: var(--color-text-tertiary) !important;
   transition: opacity var(--duration-fast) var(--ease-out);
 }
 
-.sessionItem:hover .sessionDelete {
+.sessionItem:hover .sessionActions {
   opacity: 1;
 }
 
-.sessionDelete:hover {
-  color: var(--color-error) !important;
+.sessionActionBtn {
+  font-size: 11px;
+  color: var(--color-text-tertiary) !important;
+}
+
+.sessionActionBtn:hover {
+  color: var(--color-primary) !important;
+}
+
+.sessionRenameInput {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  padding: 2px 6px;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
 }
 
 .sessionTime {

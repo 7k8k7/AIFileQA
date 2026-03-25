@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchSessions,
   createSession,
+  updateSession,
   deleteSession,
   fetchMessages,
 } from '../services';
@@ -22,6 +23,15 @@ export function useCreateSession() {
   return useMutation({
     mutationFn: (params: { scope_type: ScopeType; provider_id?: string; document_id?: string; document_ids?: string[] }) =>
       createSession(params),
+    onSuccess: () => qc.invalidateQueries({ queryKey: SESSIONS_KEY }),
+  });
+}
+
+export function useRenameSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      updateSession(id, title),
     onSuccess: () => qc.invalidateQueries({ queryKey: SESSIONS_KEY }),
   });
 }

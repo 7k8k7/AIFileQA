@@ -36,7 +36,15 @@
       "Bash(find /d/documentD/works/AgenticEngineering/FileManagement/backend -type f -name *.py)",
       "Bash(grep -E \"\\\\.py$\")",
       "Bash(xargs ls:*)",
-      "Bash(find /d/documentD/works/AgenticEngineering/FileManagement -maxdepth 2 -type d -not -path */node_modules/* -not -path */.git/*)"
+      "Bash(find /d/documentD/works/AgenticEngineering/FileManagement -maxdepth 2 -type d -not -path */node_modules/* -not -path */.git/*)",
+      "Bash(~/.claude/skills/gstack/bin/gstack-review-read)",
+      "Bash(python -c \"from main import app; print\\(''FastAPI app created OK''\\)\")",
+      "Bash(python -c \"from config import load_adapters; a = load_adapters\\(\\); print\\(f''Loaded {len\\(a\\)} adapters:'', list\\(a.keys\\(\\)\\)\\)\")",
+      "Bash(pkill -f \"uvicorn main:app.*11435\")",
+      "Bash(find d:/documentD/works/AgenticEngineering/FileManagement/frontend/src/hooks -type f -name *.ts*)",
+      "Bash(find d:/documentD/works/AgenticEngineering/FileManagement/frontend/src -name *.ts -o -name *.tsx)",
+      "Bash(xargs grep:*)",
+      "Bash(python -c \"from app.schemas.chat import SessionUpdate; from app.api.chat import router; print\\(''OK''\\)\")"
     ]
   }
 }

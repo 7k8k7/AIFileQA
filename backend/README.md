@@ -24,6 +24,7 @@
 ## 当前能力
 
 - 供应商配置：支持 OpenAI / 兼容接口 / Claude 的基础 CRUD、测试连接、设为默认
+- 非兼容接口适配：通过 adapter-proxy 将 HuggingFace TGI 等非兼容 API 翻译为 OpenAI 格式，后端无需改动（详见 [adapter-proxy/README.md](/adapter-proxy/README.md)）
 - Embedding 配置：每个 provider 可单独配置 `embedding_model` 与 `enable_embedding`
 - 文档管理：支持上传 `pdf/docx/doc/txt/md/markdown`，异步解析、分块、状态流转
 - 向量检索：解析完成后会尝试按默认 provider 生成 embedding；聊天检索时优先按会话绑定 provider 的 embedding 配置补齐并查询
@@ -200,6 +201,7 @@ backend/
 示例：
 - OpenAI：`https://api.openai.com`
 - Anthropic：`https://api.anthropic.com`
+- adapter-proxy（接入非兼容本地模型时）：`http://localhost:11435` 或 `http://adapter-proxy:11435`
 
 Provider 配置补充说明：
 - `model_name` 用于聊天生成
@@ -207,6 +209,7 @@ Provider 配置补充说明：
 - `enable_embedding=true` 且 provider 支持 embedding 时，系统会优先使用该 provider 做向量检索
 - `claude` 当前不走 embedding，会自动退回关键词检索
 - `openai_compatible` 适配本地模型时，只有本地服务真的支持 `/v1/embeddings` 才能走 embedding
+- 如果本地模型不提供 OpenAI 兼容接口，可通过 adapter-proxy 翻译后再用 `openai_compatible` 接入
 
 ### 检索 `/api/retrieval`
 

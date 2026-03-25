@@ -20,6 +20,17 @@ docker compose up -d --build
 - 后端：`http://localhost:8000`
 - 后端文档：`http://localhost:8000/docs`
 
+如需接入非 OpenAI 兼容的本地模型（如 HuggingFace TGI），还可启动 adapter-proxy：
+
+```bash
+# 1. 配置适配器
+cp adapter-proxy/config.example.yaml adapter-proxy/config.yaml
+# 2. 取消 docker-compose.yml 中 adapter-proxy 的注释，然后：
+docker compose up -d adapter-proxy
+```
+
+启动后在 DocQA 设置页添加 `OpenAI 兼容` provider，Base URL 填 `http://adapter-proxy:11435`。
+
 ### 2.2 查看状态
 
 ```bash
@@ -118,4 +129,5 @@ python scripts/verify_stack.py --frontend-url http://localhost:5173 --backend-ur
 | 前端能打开，但接口 404 | 前端未通过 `/api` 代理访问后端 | 检查 Vite 代理或 nginx 反向代理配置 |
 | 后端启动失败 | 数据库迁移未执行或环境变量不完整 | 先执行 `alembic upgrade head`，再检查 `.env` |
 | provider 测试失败 | Base URL、API Key、模型名或网络不可达 | 到设置页重新核对配置 |
+| adapter-proxy 连接失败 | 代理未启动或 config.yaml 配置有误 | 检查代理是否运行，确认 config.yaml 中 base_url 可达 |
 | 聊天返回但没有来源 | 当前未命中文档片段，或检索退回关键词仍未命中 | 检查文档内容、提问方式和文档状态 |
