@@ -16,6 +16,8 @@ import {
   FileSearchOutlined,
   ApiOutlined,
   InfoCircleOutlined,
+  MenuOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
@@ -275,6 +277,7 @@ export default function ChatPage() {
   const [providerModalOpen, setProviderModalOpen] = useState(false);
   const [documentModalOpen, setDocumentModalOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -506,16 +509,36 @@ export default function ChatPage() {
 
   return (
     <div className={styles.page}>
+      {/* Mobile sidebar toggle */}
+      <Button
+        className={styles.mobileSidebarToggle}
+        type="text"
+        icon={<MenuOutlined />}
+        onClick={() => setMobileSidebarOpen(true)}
+      />
+      {/* Mobile overlay */}
+      {mobileSidebarOpen && (
+        <div className={styles.sidebarOverlay} onClick={() => setMobileSidebarOpen(false)} />
+      )}
       {/* ══════ Sidebar ══════ */}
-      <aside className={styles.sidebar}>
+      <aside className={`${styles.sidebar} ${mobileSidebarOpen ? styles.sidebarMobileOpen : ''}`}>
         <div className={styles.sidebarHeader}>
           <span className={styles.sidebarTitle}>会话列表</span>
-          <Button
-            type="text"
-            size="small"
-            icon={<PlusOutlined />}
-            onClick={() => setDialogOpen(true)}
-          />
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Button
+              type="text"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={() => setDialogOpen(true)}
+            />
+            <Button
+              className={styles.mobileSidebarClose}
+              type="text"
+              size="small"
+              icon={<CloseOutlined />}
+              onClick={() => setMobileSidebarOpen(false)}
+            />
+          </div>
         </div>
 
         {sessionsLoading ? (
@@ -533,7 +556,7 @@ export default function ChatPage() {
               <div
                 key={s.id}
                 className={`${styles.sessionItem} ${s.id === activeSessionId ? styles.sessionActive : ''}`}
-                onClick={() => setActiveSession(s.id)}
+                onClick={() => { setActiveSession(s.id); setMobileSidebarOpen(false); }}
               >
                 <div className={styles.sessionTop}>
                   <span className={styles.sessionTitle}>{s.title}</span>
