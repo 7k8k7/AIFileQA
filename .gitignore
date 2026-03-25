@@ -1,0 +1,11 @@
+.claude/
+.gstack/
+CLAUDE.md
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+adapter-proxy/config.yaml
+backend/.env
+backend/server.log

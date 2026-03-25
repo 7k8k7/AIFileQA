@@ -72,9 +72,10 @@ pnpm preview
 
 ## 测试
 
-前端已经接入 Vitest + jsdom，覆盖了两类核心测试：
-- Zustand store：流式状态、来源状态、乐观消息
-- Service 层：文档请求、SSE 解析、聊天发送与重新生成 URL
+前端已经接入 `Vitest + jsdom`，当前测试分成三层：
+- Service：文档、聊天、Provider 的 API 请求封装
+- Hook / Store：会话缓存启停、消息刷新、流式状态和乐观消息
+- 页面级交互：`Documents`、`Chat`、`Settings` 三个核心页面的主路径
 
 运行命令：
 
@@ -83,11 +84,32 @@ cd frontend
 pnpm test
 ```
 
+只跑页面级交互测试：
+
+```bash
+pnpm test -- src/pages
+```
+
 持续监听：
 
 ```bash
 pnpm test:watch
 ```
+
+### 当前页面测试覆盖
+
+- `src/pages/Documents/__tests__/DocumentsPage.test.tsx`
+  覆盖空态、加载态、上传成功、超大文件拦截、搜索无结果。
+- `src/pages/Chat/__tests__/ChatPage.test.tsx`
+  覆盖首个会话自动选中、发送消息、查看当前模型设置、查看当前会话文档范围、仅最后一条回答允许重新生成。
+- `src/pages/Settings/__tests__/SettingsPage.test.tsx`
+  覆盖空态进入表单、添加供应商、供应商类型切换时默认值同步、编辑入口、默认供应商删除按钮禁用、连接测试提示。
+
+### 页面测试约定
+
+- 页面测试优先在页面边界用 `vi.mock` 替换 hooks、service 和 store，重点验证用户动作、页面状态和调用参数。
+- 浏览器兼容桩统一放在 `src/test/setup.ts`，目前包括 `matchMedia`、`ResizeObserver`、`scrollIntoView`、`getComputedStyle`。
+- 页面测试文件统一放在 `src/pages/**/__tests__`，后续继续补时按这个位置延续即可。
 
 ## 联调方式
 
@@ -186,7 +208,8 @@ src/
 │   └── chat.ts
 ├── test/
 ├── stores/__tests__/
-└── services/__tests__/
+├── services/__tests__/
+└── pages/**/__tests__/
 ```
 
 ## 页面说明

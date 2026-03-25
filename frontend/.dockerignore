@@ -1,3 +1,9 @@
 node_modules/
 dist/
 .env
+README.md
+vitest.config.ts
+src/test/
+src/**/__tests__/
+src/**/*.test.ts
+src/**/*.test.tsx

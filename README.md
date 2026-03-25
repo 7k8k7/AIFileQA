@@ -6,6 +6,7 @@
 - Agent 问答：多轮对话、来源展示、重新生成
 - 系统设置：OpenAI、Claude、本地兼容模型配置
 - 适配代理：接入非 OpenAI 兼容接口的本地模型（HuggingFace TGI、自定义 API 等）
+- 前端自动化测试：已覆盖核心页面交互、service、hook 和 store
 
 ## 最快启动
 
@@ -68,6 +69,13 @@ python scripts/verify_stack.py --frontend-url http://localhost:5173 --backend-ur
 
 无论是 Docker 还是本地开发，都建议按下面这条链路做最后验收：
 
+在手工验收前，建议先跑一遍前端页面级交互测试：
+
+```bash
+cd frontend
+pnpm test -- src/pages
+```
+
 1. 打开系统设置页，添加一个可用 provider
 2. 测试连接成功，并确认默认 provider 已设置
 3. 打开文档页，上传一个 `txt`、`md`、`pdf` 或 `docx`
@@ -115,6 +123,8 @@ docker compose up -d adapter-proxy
 ```bash
 docker compose up -d --build          # 启动主服务
 docker compose up -d adapter-proxy    # 启动适配代理（需先配置）
+cd frontend && pnpm test              # 跑全部前端测试
+cd frontend && pnpm test -- src/pages # 只跑页面级交互测试
 cd adapter-proxy && pip install -r requirements-dev.txt && pytest -q
 docker compose ps
 docker compose logs -f

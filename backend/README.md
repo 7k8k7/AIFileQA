@@ -101,6 +101,7 @@ python -m pytest tests -q
 说明：
 - `backend/tests/conftest.py` 会在测试时覆盖本机的 `DEBUG` 环境变量，避免 Windows 全局环境变量影响 pytest 收集
 - 测试使用临时 SQLite 和临时 Chroma 目录，不会污染正式数据
+- 项目级前端页面交互测试说明见 [docs/test.md](/d:/documentD/works/AgenticEngineering/FileManagement/docs/test.md) 和 [frontend/README.md](/d:/documentD/works/AgenticEngineering/FileManagement/frontend/README.md)
 
 ## 环境变量
 

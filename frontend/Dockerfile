@@ -2,8 +2,12 @@ FROM node:22-alpine AS build
 
 WORKDIR /app/frontend
 
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+RUN corepack enable
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm build
