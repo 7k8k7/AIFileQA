@@ -1,6 +1,8 @@
 import type { Document, PaginatedResponse } from '../types';
 import api from './api';
 
+const ALL_DOCUMENTS_PAGE_SIZE = 100;
+
 export async function fetchDocuments(params?: {
   keyword?: string;
   page?: number;
@@ -8,6 +10,33 @@ export async function fetchDocuments(params?: {
 }): Promise<PaginatedResponse<Document>> {
   const { data } = await api.get<PaginatedResponse<Document>>('/documents', { params });
   return data;
+}
+
+export async function fetchAllDocuments(params?: {
+  keyword?: string;
+}): Promise<Document[]> {
+  const firstPage = await fetchDocuments({
+    ...params,
+    page: 1,
+    page_size: ALL_DOCUMENTS_PAGE_SIZE,
+  });
+
+  if (firstPage.total <= firstPage.items.length) {
+    return firstPage.items;
+  }
+
+  const totalPages = Math.ceil(firstPage.total / ALL_DOCUMENTS_PAGE_SIZE);
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      fetchDocuments({
+        ...params,
+        page: index + 2,
+        page_size: ALL_DOCUMENTS_PAGE_SIZE,
+      }),
+    ),
+  );
+
+  return [firstPage, ...remainingPages].flatMap((page) => page.items);
 }
 
 export async function fetchDocument(id: string): Promise<Document> {

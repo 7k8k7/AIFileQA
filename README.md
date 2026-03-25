@@ -22,18 +22,33 @@ docker compose up -d --build
 - 后端：`http://localhost:8000`
 - 后端文档：`http://localhost:8000/docs`
 
-### Docker 一条命令验收
+### Docker 验收
+
+如果宿主机已经装了 Python 3，可直接运行：
 
 ```bash
 python scripts/verify_stack.py
 ```
 
-如果全部通过，你会看到：
+这条命令跑在宿主机，不是在容器里执行。
+如果机器上只有 Docker、没有 Python，请改用下面这组纯 Docker 验收步骤。
+
+如果脚本全部通过，你会看到：
 
 - 后端健康检查正常
 - 前端首页可访问
 - 前端代理到后端的 `/health` 正常
 - 前端代理到后端的 `/api/providers` 正常
+
+### 纯 Docker 验收（宿主机无 Python）
+
+| 检查项 | 命令或动作 | 期望结果 |
+| --- | --- | --- |
+| 服务状态 | `docker compose ps` | `backend` 和 `frontend` 都是 `Up`，最好带 `healthy` |
+| 后端健康 | `docker compose exec backend python -c "import json, urllib.request; print(json.load(urllib.request.urlopen('http://127.0.0.1:8000/health')))"` | 输出里包含 `status: ok` |
+| 前端代理健康 | `docker compose exec frontend wget -qO- http://127.0.0.1/health` | 返回 `{"status":"ok","app":"DocQA"}` |
+| 前端代理 API | `docker compose exec frontend wget -qO- http://127.0.0.1/api/providers` | 返回 `[]` 或 provider 列表 JSON |
+| 前端首页 | 浏览器打开 `http://localhost:8080` | 页面能正常打开，不是空白页或 502 |
 
 ## 本地开发最短路径
 
@@ -92,6 +107,9 @@ pnpm test -- src/pages
 # 1. 配置适配器
 cp adapter-proxy/config.example.yaml adapter-proxy/config.yaml
 # 编辑 config.yaml，填入模型服务地址
+# - 代理本地直跑时，可写 http://localhost:8082 / http://localhost:9090
+# - 代理跑在 Docker 里、目标模型跑在宿主机时，要写 http://host.docker.internal:8082 / http://host.docker.internal:9090
+# - Linux 下请把 docker-compose.yml 里 adapter-proxy 的 extra_hosts 一起取消注释
 
 # 2. 启动代理（二选一）
 # 独立运行：
@@ -100,7 +118,9 @@ cd adapter-proxy && pip install -r requirements.txt && uvicorn main:app --port 1
 docker compose up -d adapter-proxy
 
 # 3. 在 DocQA 设置页添加 OpenAI 兼容 provider
-#    Base URL: http://localhost:11435（本地）或 http://adapter-proxy:11435（Docker）
+#    Base URL 填的是 DocQA 后端访问代理的地址，不是浏览器地址
+#    - http://localhost:11435（DocQA 后端和 adapter-proxy 都是本地进程）
+#    - http://adapter-proxy:11435（DocQA 后端和 adapter-proxy 都在同一个 Docker Compose 网络）
 #    模型名: config.yaml 中的 model_name
 #    API Key: 留空
 #    注意: 当前代理只覆盖聊天和模型列表，不覆盖 embedding

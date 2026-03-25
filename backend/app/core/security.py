@@ -25,7 +25,7 @@ def _get_provider_fernet() -> Fernet:
     generated_key = Fernet.generate_key()
     secret_path.write_text(generated_key.decode("utf-8"), encoding="utf-8")
     logger.warning(
-        "PROVIDER_SECRET_KEY 未配置，已生成本地 provider 密钥文件：%s。生产环境建议改用环境变量注入固定密钥。",
+        "DOCQA_PROVIDER_SECRET_KEY 未配置，已生成本地 provider 密钥文件：%s。生产环境建议改用环境变量注入固定密钥。",
         secret_path,
     )
     return Fernet(generated_key)
@@ -50,7 +50,7 @@ def decrypt_provider_secret(value: str) -> str:
     try:
         return _get_provider_fernet().decrypt(token.encode("utf-8")).decode("utf-8")
     except InvalidToken as exc:
-        logger.error("Provider 密钥解密失败，请检查 PROVIDER_SECRET_KEY 或本地密钥文件是否变化。")
+        logger.error("Provider 密钥解密失败，请检查 DOCQA_PROVIDER_SECRET_KEY 或本地密钥文件是否变化。")
         raise ValueError("Provider 密钥解密失败") from exc
 
 

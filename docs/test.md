@@ -130,7 +130,8 @@ pytest -q
 | 前端测试 | `cd frontend && pnpm test` |
 | 前端页面测试 | `cd frontend && pnpm test -- src/pages` |
 | adapter-proxy 测试 | `cd adapter-proxy && pip install -r requirements-dev.txt && pytest -q` |
-| 联调验收 | `python scripts/verify_stack.py` |
+| 联调验收（宿主机有 Python） | `python scripts/verify_stack.py` |
+| 联调验收（只有 Docker） | `docker compose ps`，再执行 `docker compose exec frontend wget -qO- http://127.0.0.1/health` 和 `docker compose exec frontend wget -qO- http://127.0.0.1/api/providers` |
 
 如果要做完整验收，建议再走一遍下面这条手工链路：
 

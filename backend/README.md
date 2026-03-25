@@ -46,6 +46,8 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
+如果你之前本地 `.env`、CI secret 或手工导出的环境变量还是旧名字，比如 `DEBUG`、`DATABASE_URL`、`PROVIDER_SECRET_KEY`，请改成 `DOCQA_` 前缀这一套。后端现在只读取 `DOCQA_*`。
+
 ### 3. 执行数据库迁移
 
 ```bash
@@ -99,7 +101,7 @@ python -m pytest tests -q
 ```
 
 说明：
-- `backend/tests/conftest.py` 会在测试时覆盖本机的 `DEBUG` 环境变量，避免 Windows 全局环境变量影响 pytest 收集
+- `backend/tests/conftest.py` 会使用 `DOCQA_` 前缀环境变量覆盖测试配置，避免本机全局 `DEBUG` 之类的通用变量干扰 pytest 收集
 - 测试使用临时 SQLite 和临时 Chroma 目录，不会污染正式数据
 - 项目级前端页面交互测试说明见 [docs/test.md](/d:/documentD/works/AgenticEngineering/FileManagement/docs/test.md) 和 [frontend/README.md](/d:/documentD/works/AgenticEngineering/FileManagement/frontend/README.md)
 
@@ -107,17 +109,49 @@ python -m pytest tests -q
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `APP_NAME` | `DocQA` | 应用名称 |
-| `DEBUG` | `true` | 调试模式；建议只填 `true/false` |
-| `LOG_LEVEL` | `INFO` | 日志级别，例如 `DEBUG / INFO / WARNING` |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./data/docqa.db` | 数据库连接串 |
-| `PROVIDER_SECRET_KEY` | 空 | Provider 密钥加密所用的 Fernet 主密钥；生产环境建议显式配置 |
-| `PROVIDER_SECRET_FILE` | `./data/provider_secret.key` | 未配置 `PROVIDER_SECRET_KEY` 时，本地自动生成并持久化的密钥文件 |
-| `UPLOAD_DIR` | `./uploads` | 上传文件目录 |
-| `VECTOR_STORE_DIR` | `./data/chroma` | ChromaDB 本地存储目录 |
-| `MAX_UPLOAD_SIZE_MB` | `50` | 单文件大小限制 |
-| `HOST` | `0.0.0.0` | 监听地址 |
-| `PORT` | `8000` | 监听端口 |
+| `DOCQA_APP_NAME` | `DocQA` | 应用名称 |
+| `DOCQA_DEBUG` | `true` | 调试模式；建议只填 `true/false` |
+| `DOCQA_LOG_LEVEL` | `INFO` | 日志级别，例如 `DEBUG / INFO / WARNING` |
+| `DOCQA_DATABASE_URL` | `sqlite+aiosqlite:///./data/docqa.db` | 数据库连接串 |
+| `DOCQA_PROVIDER_SECRET_KEY` | 空 | Provider 密钥加密所用的 Fernet 主密钥；生产环境建议显式配置 |
+| `DOCQA_PROVIDER_SECRET_FILE` | `./data/provider_secret.key` | 未配置 `DOCQA_PROVIDER_SECRET_KEY` 时，本地自动生成并持久化的密钥文件 |
+| `DOCQA_UPLOAD_DIR` | `./uploads` | 上传文件目录 |
+| `DOCQA_VECTOR_STORE_DIR` | `./data/chroma` | ChromaDB 本地存储目录 |
+| `DOCQA_MAX_UPLOAD_SIZE_MB` | `50` | 单文件大小限制 |
+| `DOCQA_HOST` | `0.0.0.0` | 监听地址 |
+| `DOCQA_PORT` | `8000` | 监听端口 |
+
+### 变量迁移
+
+如果你之前已经在本地、CI 或部署平台里配过旧变量名，请按下面迁移：
+
+| 旧名字 | 新名字 |
+|---|---|
+| `DEBUG` | `DOCQA_DEBUG` |
+| `DATABASE_URL` | `DOCQA_DATABASE_URL` |
+| `PROVIDER_SECRET_KEY` | `DOCQA_PROVIDER_SECRET_KEY` |
+| `PROVIDER_SECRET_FILE` | `DOCQA_PROVIDER_SECRET_FILE` |
+
+手工导出时请改用：
+
+```powershell
+$env:DOCQA_DEBUG = "true"
+$env:DOCQA_DATABASE_URL = "sqlite+aiosqlite:///./data/docqa.db"
+$env:DOCQA_PROVIDER_SECRET_KEY = "your-fernet-key"
+```
+
+```bash
+export DOCQA_DEBUG=true
+export DOCQA_DATABASE_URL=sqlite+aiosqlite:///./data/docqa.db
+export DOCQA_PROVIDER_SECRET_KEY=your-fernet-key
+```
+
+CI 平台里的 secret / variable 名称也请同步改成：
+
+- `DOCQA_DEBUG`
+- `DOCQA_DATABASE_URL`
+- `DOCQA_PROVIDER_SECRET_KEY`
+- `DOCQA_PROVIDER_SECRET_FILE`
 
 ## 项目结构
 
@@ -202,7 +236,10 @@ backend/
 示例：
 - OpenAI：`https://api.openai.com`
 - Anthropic：`https://api.anthropic.com`
-- adapter-proxy（接入非兼容本地模型时）：`http://localhost:11435` 或 `http://adapter-proxy:11435`
+- adapter-proxy（DocQA 后端和代理都在本地时）：`http://localhost:11435`
+- adapter-proxy（DocQA 后端和代理都在同一个 Docker Compose 网络里时）：`http://adapter-proxy:11435`
+
+`base_url` 是后端访问模型服务或代理时用的地址，不是浏览器地址。
 
 Provider 配置补充说明：
 - `model_name` 用于聊天生成
@@ -258,7 +295,7 @@ Provider 配置补充说明：
 
 说明：
 - 日志里不会输出完整 `api_key`
-- 可通过 `LOG_LEVEL=DEBUG` 提高排查细节
+- 可通过 `DOCQA_LOG_LEVEL=DEBUG` 提高排查细节
 
 ### 数据安全
 
@@ -271,8 +308,8 @@ Provider 配置补充说明：
 
 建议：
 
-- 本地开发可直接使用自动生成的 `PROVIDER_SECRET_FILE`
-- 生产或演示环境建议显式配置固定的 `PROVIDER_SECRET_KEY`
+- 本地开发可直接使用自动生成的 `DOCQA_PROVIDER_SECRET_FILE`
+- 生产或演示环境建议显式配置固定的 `DOCQA_PROVIDER_SECRET_KEY`
 - 如果更换了主密钥，旧数据将无法解密，因此不要随意变更
 
 SSE 事件格式：

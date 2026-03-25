@@ -5,14 +5,14 @@ services:
       dockerfile: Dockerfile
     image: docqa-backend:latest
     environment:
-      APP_NAME: DocQA
-      DEBUG: "true"
-      DATABASE_URL: sqlite+aiosqlite:///./data/docqa.db
-      UPLOAD_DIR: ./uploads
-      VECTOR_STORE_DIR: ./data/chroma
-      MAX_UPLOAD_SIZE_MB: "50"
-      HOST: 0.0.0.0
-      PORT: "8000"
+      DOCQA_APP_NAME: DocQA
+      DOCQA_DEBUG: "true"
+      DOCQA_DATABASE_URL: sqlite+aiosqlite:///./data/docqa.db
+      DOCQA_UPLOAD_DIR: ./uploads
+      DOCQA_VECTOR_STORE_DIR: ./data/chroma
+      DOCQA_MAX_UPLOAD_SIZE_MB: "50"
+      DOCQA_HOST: 0.0.0.0
+      DOCQA_PORT: "8000"
     volumes:
       - backend_data:/app/backend/data
       - backend_uploads:/app/backend/uploads
@@ -57,6 +57,10 @@ services:
   #   image: docqa-adapter-proxy:latest
   #   volumes:
   #     - ./adapter-proxy/config.yaml:/app/config.yaml:ro
+  #   # Linux 上如果代理容器要访问宿主机模型服务，需要取消下面两行注释；
+  #   # macOS / Windows 一般可以直接使用 host.docker.internal
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
   #   ports:
   #     - "11435:11435"
   #   healthcheck:

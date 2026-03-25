@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 
 def _provider_payload(**overrides):
@@ -22,6 +24,21 @@ def _provider_payload(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+async def _mark_provider_verified(app_ctx, provider_id: str) -> None:
+    async with app_ctx.database.async_session() as db:
+        provider = (
+            await db.execute(
+                select(app_ctx.provider_models.ProviderConfig).where(
+                    app_ctx.provider_models.ProviderConfig.id == provider_id
+                )
+            )
+        ).scalar_one()
+        provider.last_test_success = True
+        provider.last_test_message = "测试成功"
+        db.add(provider)
+        await db.commit()
 
 
 @dataclass
@@ -44,6 +61,7 @@ def test_create_session(app_ctx):
     with TestClient(app_ctx.main.app) as client:
         provider = client.post("/api/providers", json=_provider_payload())
         assert provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, provider.json()["id"]))
 
         response = client.post(
             "/api/sessions",
@@ -54,6 +72,20 @@ def test_create_session(app_ctx):
     body = response.json()
     assert body["id"]
     assert body["provider_id"] == provider.json()["id"]
+
+
+def test_create_session_rejects_unverified_provider(app_ctx):
+    with TestClient(app_ctx.main.app) as client:
+        provider = client.post("/api/providers", json=_provider_payload())
+        assert provider.status_code == 201
+
+        response = client.post(
+            "/api/sessions",
+            json={"scope_type": "all", "provider_id": provider.json()["id"]},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "请选择已经测试连接成功的供应商"
 
 
 def test_send_message_sse_format(app_ctx, monkeypatch):
@@ -75,6 +107,7 @@ def test_send_message_sse_format(app_ctx, monkeypatch):
     with TestClient(app_ctx.main.app) as client:
         provider = client.post("/api/providers", json=_provider_payload())
         assert provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, provider.json()["id"]))
         session = client.post(
             "/api/sessions",
             json={"scope_type": "all", "provider_id": provider.json()["id"]},
@@ -121,6 +154,7 @@ def test_regenerate_message(app_ctx, monkeypatch):
     with TestClient(app_ctx.main.app) as client:
         provider = client.post("/api/providers", json=_provider_payload())
         assert provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, provider.json()["id"]))
         session = client.post(
             "/api/sessions",
             json={"scope_type": "all", "provider_id": provider.json()["id"]},
@@ -172,6 +206,7 @@ def test_delete_session(app_ctx, monkeypatch):
     with TestClient(app_ctx.main.app) as client:
         provider = client.post("/api/providers", json=_provider_payload())
         assert provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, provider.json()["id"]))
         session = client.post(
             "/api/sessions",
             json={"scope_type": "all", "provider_id": provider.json()["id"]},
@@ -192,3 +227,96 @@ def test_delete_session(app_ctx, monkeypatch):
 
     assert deleted.status_code == 204
     assert messages.status_code == 404
+
+
+def test_deleted_provider_session_can_still_browse_but_cannot_send(app_ctx, monkeypatch):
+    async def fake_build_rag_prompt(*_args, **_kwargs):
+        return _FakeRagResult(
+            system_prompt="system prompt",
+            retrieval_method="keyword",
+            chunks=[_FakeChunk(document_name="sample.txt", chunk_index=0, content="alpha chunk")],
+        )
+
+    async def fake_stream_chat_completion(_provider, _messages, _user_content, system_prompt=None):
+        assert system_prompt == "system prompt"
+        yield 'data: {"type":"token","content":"first answer"}\n\n'
+
+    monkeypatch.setattr(app_ctx.chat_api, "build_rag_prompt", fake_build_rag_prompt)
+    monkeypatch.setattr(app_ctx.chat_api, "stream_chat_completion", fake_stream_chat_completion)
+
+    with TestClient(app_ctx.main.app) as client:
+        provider = client.post("/api/providers", json=_provider_payload())
+        assert provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, provider.json()["id"]))
+        session = client.post(
+            "/api/sessions",
+            json={"scope_type": "all", "provider_id": provider.json()["id"]},
+        )
+        assert session.status_code == 201
+        session_id = session.json()["id"]
+
+        with client.stream(
+            "POST",
+            f"/api/sessions/{session_id}/messages",
+            json={"content": "question"},
+        ) as response:
+            assert response.status_code == 200
+            _ = "".join(response.iter_text())
+
+        deleted = client.delete(f"/api/providers/{provider.json()['id']}")
+        messages = client.get(f"/api/sessions/{session_id}/messages")
+        send_again = client.post(
+            f"/api/sessions/{session_id}/messages",
+            json={"content": "next question"},
+        )
+
+    assert deleted.status_code == 204
+    assert messages.status_code == 200
+    assert len(messages.json()) == 2
+    assert send_again.status_code == 400
+    assert "供应商已被删除" in send_again.json()["detail"]
+
+
+def test_deleted_provider_session_cannot_regenerate(app_ctx, monkeypatch):
+    async def fake_build_rag_prompt(*_args, **_kwargs):
+        return _FakeRagResult(
+            system_prompt="system prompt",
+            retrieval_method="keyword",
+            chunks=[_FakeChunk(document_name="sample.txt", chunk_index=0, content="alpha chunk")],
+        )
+
+    async def fake_stream_chat_completion(_provider, _messages, _user_content, system_prompt=None):
+        yield 'data: {"type":"token","content":"old answer"}\n\n'
+
+    monkeypatch.setattr(app_ctx.chat_api, "build_rag_prompt", fake_build_rag_prompt)
+    monkeypatch.setattr(app_ctx.chat_api, "stream_chat_completion", fake_stream_chat_completion)
+
+    with TestClient(app_ctx.main.app) as client:
+        provider = client.post("/api/providers", json=_provider_payload())
+        assert provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, provider.json()["id"]))
+        session = client.post(
+            "/api/sessions",
+            json={"scope_type": "all", "provider_id": provider.json()["id"]},
+        )
+        assert session.status_code == 201
+        session_id = session.json()["id"]
+
+        with client.stream(
+            "POST",
+            f"/api/sessions/{session_id}/messages",
+            json={"content": "question"},
+        ) as response:
+            assert response.status_code == 200
+            body = "".join(response.iter_text())
+
+        assistant_id = re.search(r'"message_id"\s*:\s*"([^"]+)"', body).group(1)
+        deleted = client.delete(f"/api/providers/{provider.json()['id']}")
+        regenerate = client.post(
+            f"/api/sessions/{session_id}/messages/{assistant_id}/regenerate",
+            json={},
+        )
+
+    assert deleted.status_code == 204
+    assert regenerate.status_code == 400
+    assert "供应商已被删除" in regenerate.json()["detail"]

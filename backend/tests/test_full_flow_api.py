@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib
 import re
 import sys
@@ -21,6 +22,7 @@ def _load_app_modules() -> SimpleNamespace:
         chat_api=importlib.import_module("app.api.chat"),
         database=importlib.import_module("app.core.database"),
         document_models=importlib.import_module("app.models.document"),
+        provider_models=importlib.import_module("app.models.provider"),
     )
 
 
@@ -30,12 +32,27 @@ def app_ctx(monkeypatch: pytest.MonkeyPatch, tmp_path):
     upload_dir = (tmp_path / "uploads").as_posix()
     vector_dir = (tmp_path / "chroma").as_posix()
 
-    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
-    monkeypatch.setenv("UPLOAD_DIR", upload_dir)
-    monkeypatch.setenv("VECTOR_STORE_DIR", vector_dir)
-    monkeypatch.setenv("DEBUG", "true")
+    monkeypatch.setenv("DOCQA_DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
+    monkeypatch.setenv("DOCQA_UPLOAD_DIR", upload_dir)
+    monkeypatch.setenv("DOCQA_VECTOR_STORE_DIR", vector_dir)
+    monkeypatch.setenv("DOCQA_DEBUG", "true")
 
     return _load_app_modules()
+
+
+async def _mark_provider_verified(app_ctx: SimpleNamespace, provider_id: str) -> None:
+    async with app_ctx.database.async_session() as db:
+        provider = (
+            await db.execute(
+                select(app_ctx.provider_models.ProviderConfig).where(
+                    app_ctx.provider_models.ProviderConfig.id == provider_id
+                )
+            )
+        ).scalar_one()
+        provider.last_test_success = True
+        provider.last_test_message = "测试成功"
+        db.add(provider)
+        await db.commit()
 
 
 def test_full_flow_upload_parse_chat_sse(
@@ -94,6 +111,7 @@ def test_full_flow_upload_parse_chat_sse(
             },
         )
         assert provider_resp.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, provider_resp.json()["id"]))
 
         upload_resp = client.post(
             "/api/documents",
@@ -188,6 +206,7 @@ def test_chat_uses_selected_session_provider(
             },
         )
         assert default_provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, default_provider.json()["id"]))
 
         secondary_provider = client.post(
             "/api/providers",
@@ -203,6 +222,7 @@ def test_chat_uses_selected_session_provider(
             },
         )
         assert secondary_provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, secondary_provider.json()["id"]))
         selected_provider_id = secondary_provider.json()["id"]
 
         session_resp = client.post(
@@ -281,6 +301,7 @@ def test_chat_retrieval_prefers_selected_session_provider_embeddings(
             },
         )
         assert default_provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, default_provider.json()["id"]))
 
         selected_provider = client.post(
             "/api/providers",
@@ -298,6 +319,7 @@ def test_chat_retrieval_prefers_selected_session_provider_embeddings(
             },
         )
         assert selected_provider.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, selected_provider.json()["id"]))
         selected_provider_id = selected_provider.json()["id"]
 
         upload_resp = client.post(
@@ -451,6 +473,7 @@ def test_regenerate_last_assistant_message_updates_existing_reply(
             },
         )
         assert provider_resp.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, provider_resp.json()["id"]))
 
         session_resp = client.post(
             "/api/sessions",
@@ -543,6 +566,7 @@ def test_single_scope_supports_multiple_documents(
             },
         )
         assert provider_resp.status_code == 201
+        asyncio.run(_mark_provider_verified(app_ctx, provider_resp.json()["id"]))
 
         for name in ("a.txt", "b.txt", "c.txt"):
             upload_resp = client.post(

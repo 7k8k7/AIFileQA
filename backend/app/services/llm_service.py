@@ -12,6 +12,10 @@ from app.core.config import settings
 from app.core.observability import summarize_provider
 from app.models.provider import ProviderConfig
 from app.models.chat import ChatMessage
+from app.services.provider_payloads import (
+    adapt_payload_for_unsupported_parameter,
+    build_completion_limit_payload,
+)
 from app.services.provider_url import build_provider_url, normalize_provider_base_url
 
 logger = logging.getLogger(__name__)
@@ -99,7 +103,7 @@ async def stream_chat_completion(
         url = build_provider_url(url, "/v1/chat/completions")
         payload = {
             "model": provider.model_name,
-            "max_tokens": provider.max_tokens,
+            **build_completion_limit_payload(provider.provider_type, provider.max_tokens),
             "temperature": provider.temperature,
             "stream": True,
             "messages": history,
@@ -189,27 +193,86 @@ def _merge_system_and_summary(system_prompt: str | None, summary_text: str | Non
     )
 
 
+def _format_http_error_message(
+    *,
+    status_code: int,
+    body: str | None,
+    request_id: str | None,
+) -> str:
+    message = f"HTTP {status_code}"
+    normalized_body = (body or "").strip()
+    if normalized_body:
+        clipped_body = normalized_body[:1000]
+        if len(normalized_body) > 1000:
+            clipped_body = clipped_body.rstrip() + "..."
+        message += f": {clipped_body}"
+    if request_id:
+        message += f" (x-request-id: {request_id})"
+    return message
+
+
 async def _stream_openai(
     url: str, headers: dict, payload: dict, timeout: int
 ) -> AsyncGenerator[str, None]:
     """Stream OpenAI-compatible SSE and yield token events."""
     async with httpx.AsyncClient(timeout=timeout) as client:
-        async with client.stream("POST", url, headers=headers, json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data = line[6:]
-                if data == "[DONE]":
-                    break
-                try:
-                    obj = json.loads(data)
-                    delta = obj.get("choices", [{}])[0].get("delta", {})
-                    content = delta.get("content")
-                    if content:
-                        yield f"data: {json.dumps({'type': 'token', 'content': content}, ensure_ascii=False)}\n\n"
-                except (json.JSONDecodeError, IndexError, KeyError):
-                    continue
+        current_payload = dict(payload)
+        last_error_message: str | None = None
+        for _ in range(3):
+            async with client.stream("POST", url, headers=headers, json=current_payload) as resp:
+                if resp.status_code >= 400:
+                    body = ""
+                    try:
+                        body = (await resp.aread()).decode("utf-8", errors="replace")
+                    except Exception:
+                        try:
+                            body = resp.text
+                        except Exception:
+                            body = ""
+
+                    last_error_message = _format_http_error_message(
+                        status_code=resp.status_code,
+                        body=body,
+                        request_id=resp.headers.get("x-request-id"),
+                    )
+
+                    next_payload, adaptation = adapt_payload_for_unsupported_parameter(
+                        current_payload,
+                        body,
+                    )
+                    if next_payload is not None:
+                        logger.info(
+                            "Retrying OpenAI-compatible request with adapted payload: %s",
+                            adaptation,
+                        )
+                        current_payload = next_payload
+                        continue
+
+                    raise RuntimeError(
+                        _format_http_error_message(
+                            status_code=resp.status_code,
+                            body=body,
+                            request_id=resp.headers.get("x-request-id"),
+                        )
+                    )
+
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data == "[DONE]":
+                        break
+                    try:
+                        obj = json.loads(data)
+                        delta = obj.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield f"data: {json.dumps({'type': 'token', 'content': content}, ensure_ascii=False)}\n\n"
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+                return
+
+        raise RuntimeError(last_error_message or "OpenAI-compatible request adaptation retries exhausted")
 
 
 async def _stream_anthropic(
@@ -217,18 +280,53 @@ async def _stream_anthropic(
 ) -> AsyncGenerator[str, None]:
     """Stream Anthropic SSE and yield token events."""
     async with httpx.AsyncClient(timeout=timeout) as client:
-        async with client.stream("POST", url, headers=headers, json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data = line[6:]
-                try:
-                    obj = json.loads(data)
-                    event_type = obj.get("type")
-                    if event_type == "content_block_delta":
-                        text = obj.get("delta", {}).get("text", "")
-                        if text:
-                            yield f"data: {json.dumps({'type': 'token', 'content': text}, ensure_ascii=False)}\n\n"
-                except (json.JSONDecodeError, KeyError):
-                    continue
+        current_payload = dict(payload)
+        last_error_message: str | None = None
+        for _ in range(3):
+            async with client.stream("POST", url, headers=headers, json=current_payload) as resp:
+                if resp.status_code >= 400:
+                    body = ""
+                    try:
+                        body = (await resp.aread()).decode("utf-8", errors="replace")
+                    except Exception:
+                        try:
+                            body = resp.text
+                        except Exception:
+                            body = ""
+
+                    last_error_message = _format_http_error_message(
+                        status_code=resp.status_code,
+                        body=body,
+                        request_id=resp.headers.get("x-request-id"),
+                    )
+
+                    next_payload, adaptation = adapt_payload_for_unsupported_parameter(
+                        current_payload,
+                        body,
+                    )
+                    if next_payload is not None:
+                        logger.info(
+                            "Retrying Anthropic request with adapted payload: %s",
+                            adaptation,
+                        )
+                        current_payload = next_payload
+                        continue
+
+                    raise RuntimeError(last_error_message)
+
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    try:
+                        obj = json.loads(data)
+                        event_type = obj.get("type")
+                        if event_type == "content_block_delta":
+                            text = obj.get("delta", {}).get("text", "")
+                            if text:
+                                yield f"data: {json.dumps({'type': 'token', 'content': text}, ensure_ascii=False)}\n\n"
+                    except (json.JSONDecodeError, KeyError):
+                        continue
+                return
+
+        raise RuntimeError(last_error_message or "Anthropic request adaptation retries exhausted")

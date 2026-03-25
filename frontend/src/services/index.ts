@@ -1,4 +1,4 @@
-export { fetchDocuments, fetchDocument, uploadDocument, deleteDocument } from './documents';
+export { fetchDocuments, fetchAllDocuments, fetchDocument, uploadDocument, deleteDocument } from './documents';
 export { fetchSessions, createSession, updateSession, deleteSession, fetchMessages, sendMessage, regenerateMessage } from './chat';
 export {
   fetchProvider,

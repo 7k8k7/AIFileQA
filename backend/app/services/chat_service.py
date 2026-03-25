@@ -39,6 +39,8 @@ async def create_session(db: AsyncSession, data: SessionCreate) -> ChatSession:
         ).scalar_one_or_none()
         if not provider:
             raise ValueError("供应商不存在")
+        if not provider.last_test_success:
+            raise ValueError("请选择已经测试连接成功的供应商")
     else:
         default_provider = (
             await db.execute(
@@ -47,6 +49,8 @@ async def create_session(db: AsyncSession, data: SessionCreate) -> ChatSession:
         ).scalar_one_or_none()
         if not default_provider:
             raise ValueError("请先在设置中配置模型供应商")
+        if not default_provider.last_test_success:
+            raise ValueError("默认供应商尚未测试连接成功，请先到设置页完成测试")
         provider_id = default_provider.id
 
     document_ids = data.document_ids or ([data.document_id] if data.document_id else [])

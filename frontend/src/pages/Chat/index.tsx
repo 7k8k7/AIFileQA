@@ -29,13 +29,13 @@ import {
   useDeleteSession,
   useMessages,
   useInvalidateMessages,
-  useDocuments,
+  useAllDocuments,
   useProviders,
 } from '../../hooks';
 import { regenerateMessage, sendMessage } from '../../services';
 import { useChatStore } from '../../stores';
 import type { SourcesData } from '../../stores/chatStore';
-import type { ChatMessage, ProviderConfig, ScopeType } from '../../types';
+import type { ChatMessage, Document, ProviderConfig, ScopeType } from '../../types';
 import styles from './Chat.module.css';
 
 // ── Helpers ──
@@ -65,30 +65,52 @@ function getProviderRuntimeHint(provider?: ProviderConfig): string {
   return '当前会话会优先使用 Embedding 检索；如果向量不可用，会自动退回关键词检索。';
 }
 
+function getRequestErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'object' && error !== null) {
+    const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail;
+    }
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) {
+      return message;
+    }
+  }
+  return fallback;
+}
+
 // ── New Session Dialog ──
 
 function NewSessionDialog({
   open,
   onClose,
   onCreate,
+  creating,
   providers,
+  documents,
 }: {
   open: boolean;
   onClose: () => void;
   onCreate: (scope: ScopeType, providerId?: string, docIds?: string[]) => void;
+  creating: boolean;
   providers: ProviderConfig[];
+  documents: Document[];
 }) {
   const [scope, setScope] = useState<ScopeType>('all');
   const [providerId, setProviderId] = useState<string>();
   const [docIds, setDocIds] = useState<string[]>([]);
-  const { data: docsData } = useDocuments();
   const availableDocs = useMemo(
-    () => docsData?.items.filter((d) => d.status === '可用') ?? [],
-    [docsData],
+    () => documents.filter((d) => d.status === '可用'),
+    [documents],
   );
-  const defaultProviderId = useMemo(
-    () => providers.find((p) => p.is_default)?.id ?? providers[0]?.id,
+  const verifiedProviders = useMemo(
+    () => providers.filter((provider) => provider.last_test_success),
     [providers],
+  );
+  const hiddenProviderCount = providers.length - verifiedProviders.length;
+  const defaultProviderId = useMemo(
+    () => verifiedProviders.find((provider) => provider.is_default)?.id ?? verifiedProviders[0]?.id,
+    [verifiedProviders],
   );
 
   useEffect(() => {
@@ -100,7 +122,6 @@ function NewSessionDialog({
 
   const handleOk = () => {
     onCreate(scope, providerId, scope === 'single' ? docIds : undefined);
-    onClose();
   };
 
   return (
@@ -111,7 +132,8 @@ function NewSessionDialog({
       onOk={handleOk}
       okText="创建会话"
       cancelText="取消"
-      okButtonProps={{ disabled: !providerId || (scope === 'single' && docIds.length === 0) }}
+      confirmLoading={creating}
+      okButtonProps={{ disabled: creating || !providerId || (scope === 'single' && docIds.length === 0) }}
       destroyOnClose
     >
       <div className={styles.dialogBody}>
@@ -121,17 +143,28 @@ function NewSessionDialog({
             <div className={styles.noDocsHint}>
               <ApiOutlined /> 暂无可用供应商，请先到设置页配置
             </div>
+          ) : verifiedProviders.length === 0 ? (
+            <div className={styles.noDocsHint}>
+              <ApiOutlined /> 已配置 {providers.length} 个供应商，但都还没通过连接测试，请先到设置页完成测试
+            </div>
           ) : (
-            <Select
-              placeholder="选择一个供应商"
-              value={providerId}
-              onChange={setProviderId}
-              style={{ width: '100%' }}
-              options={providers.map((p) => ({
-                value: p.id,
-                label: `${p.provider_type === 'openai' ? 'OpenAI' : p.provider_type === 'claude' ? 'Claude' : '兼容接口'} · ${p.model_name}${p.is_default ? '（默认）' : ''}`,
-              }))}
-            />
+            <>
+              <Select
+                placeholder="选择一个供应商"
+                value={providerId}
+                onChange={setProviderId}
+                style={{ width: '100%' }}
+                options={verifiedProviders.map((provider) => ({
+                  value: provider.id,
+                  label: `${provider.provider_type === 'openai' ? 'OpenAI' : provider.provider_type === 'claude' ? 'Claude' : '兼容接口'} · ${provider.model_name}${provider.is_default ? '（默认）' : ''}`,
+                }))}
+              />
+              {hiddenProviderCount > 0 && (
+                <div className={styles.noDocsHint}>
+                  <InfoCircleOutlined /> 已隐藏 {hiddenProviderCount} 个未通过连接测试的供应商
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -306,7 +339,7 @@ export default function ChatPage() {
   const { data: sessions, isLoading: sessionsLoading } = useSessions();
   const { data: messages, isLoading: messagesLoading } = useMessages(activeSessionId);
   const { data: providers = [] } = useProviders();
-  const { data: docsData } = useDocuments();
+  const { data: allDocuments = [] } = useAllDocuments();
   const invalidateMessages = useInvalidateMessages();
   const createMutation = useCreateSession();
   const renameMutation = useRenameSession();
@@ -384,6 +417,48 @@ export default function ChatPage() {
     }
   }, [messages, clearConfirmedOptimisticMessages]);
 
+  // Current session info
+  const activeSession = sessions?.find((s) => s.id === activeSessionId);
+  const currentProvider = useMemo(
+    () => providers.find((p) => p.id === activeSession?.provider_id),
+    [providers, activeSession?.provider_id],
+  );
+  const sessionProviderMissing = useMemo(
+    () => Boolean(activeSession && !currentProvider),
+    [activeSession, currentProvider],
+  );
+  const currentProviderLabel = useMemo(() => {
+    if (sessionProviderMissing) return '供应商已删除';
+    if (!currentProvider) return '未配置供应商';
+    if (currentProvider.provider_type === 'openai') return 'OpenAI';
+    if (currentProvider.provider_type === 'claude') return 'Anthropic Claude';
+    return 'OpenAI 兼容';
+  }, [currentProvider, sessionProviderMissing]);
+  const currentProviderRuntimeHint = useMemo(
+    () =>
+      sessionProviderMissing
+        ? '这个会话绑定的 provider 已被删除。历史消息还能查看，但不能继续提问或重新生成。'
+        : getProviderRuntimeHint(currentProvider),
+    [currentProvider, sessionProviderMissing],
+  );
+  const documentNameMap = useMemo(
+    () => new Map(allDocuments.map((doc) => [doc.id, doc.file_name])),
+    [allDocuments],
+  );
+  const activeSessionDocumentNames = useMemo(() => {
+    if (!activeSession || activeSession.scope_type !== 'single') return [];
+    const ids = activeSession.document_ids?.length ? activeSession.document_ids : activeSession.document_id ? [activeSession.document_id] : [];
+    return ids
+      .map((id) => documentNameMap.get(id))
+      .filter((name): name is string => !!name);
+  }, [activeSession, documentNameMap]);
+  const activeSessionDocumentSummary = useMemo(() => {
+    if (activeSessionDocumentNames.length === 0) return '';
+    if (activeSessionDocumentNames.length === 1) return activeSessionDocumentNames[0];
+    return `${activeSessionDocumentNames[0]} 等${activeSessionDocumentNames.length}个文档`;
+  }, [activeSessionDocumentNames]);
+  const composerDisabled = isStreaming || sessionProviderMissing;
+
   // Create session
   const handleCreate = useCallback(
     (scope: ScopeType, providerId?: string, docIds?: string[]) => {
@@ -397,7 +472,11 @@ export default function ChatPage() {
         {
           onSuccess: (session) => {
             setActiveSession(session.id);
+            setDialogOpen(false);
             msgApi.success('会话已创建');
+          },
+          onError: (error) => {
+            msgApi.error(`创建会话失败：${getRequestErrorMessage(error, '请先检查模型供应商配置')}`);
           },
         },
       );
@@ -428,7 +507,7 @@ export default function ChatPage() {
   // Send message
   const handleSend = useCallback(() => {
     const content = inputValue.trim();
-    if (!content || !activeSessionId || isStreaming) return;
+    if (!content || !activeSessionId || isStreaming || sessionProviderMissing) return;
 
     setInputValue('');
     const tempId = addOptimisticUserMessage(activeSessionId, content);
@@ -468,11 +547,12 @@ export default function ChatPage() {
     invalidateMessages,
     setStreamingSources,
     msgApi,
+    sessionProviderMissing,
   ]);
 
   const handleRegenerate = useCallback(
     (messageId: string) => {
-      if (!activeSessionId || isStreaming) return;
+      if (!activeSessionId || isStreaming || sessionProviderMissing) return;
 
       const abort = regenerateMessage(activeSessionId, messageId, {
         onToken: (token) => appendStreamToken(token),
@@ -499,6 +579,7 @@ export default function ChatPage() {
       msgApi,
       setStreamingSources,
       startStreaming,
+      sessionProviderMissing,
     ],
   );
 
@@ -509,43 +590,6 @@ export default function ChatPage() {
       handleSend();
     }
   };
-
-  // Current session info
-  const activeSession = sessions?.find((s) => s.id === activeSessionId);
-  const defaultProvider = useMemo(
-    () => providers.find((p) => p.is_default),
-    [providers],
-  );
-  const currentProvider = useMemo(
-    () => providers.find((p) => p.id === activeSession?.provider_id) ?? defaultProvider,
-    [providers, activeSession?.provider_id, defaultProvider],
-  );
-  const currentProviderLabel = useMemo(() => {
-    if (!currentProvider) return '未配置供应商';
-    if (currentProvider.provider_type === 'openai') return 'OpenAI';
-    if (currentProvider.provider_type === 'claude') return 'Anthropic Claude';
-    return 'OpenAI 兼容';
-  }, [currentProvider]);
-  const currentProviderRuntimeHint = useMemo(
-    () => getProviderRuntimeHint(currentProvider),
-    [currentProvider],
-  );
-  const documentNameMap = useMemo(
-    () => new Map((docsData?.items ?? []).map((doc) => [doc.id, doc.file_name])),
-    [docsData],
-  );
-  const activeSessionDocumentNames = useMemo(() => {
-    if (!activeSession || activeSession.scope_type !== 'single') return [];
-    const ids = activeSession.document_ids?.length ? activeSession.document_ids : activeSession.document_id ? [activeSession.document_id] : [];
-    return ids
-      .map((id) => documentNameMap.get(id))
-      .filter((name): name is string => !!name);
-  }, [activeSession, documentNameMap]);
-  const activeSessionDocumentSummary = useMemo(() => {
-    if (activeSessionDocumentNames.length === 0) return '';
-    if (activeSessionDocumentNames.length === 1) return activeSessionDocumentNames[0];
-    return `${activeSessionDocumentNames[0]} 等${activeSessionDocumentNames.length}个文档`;
-  }, [activeSessionDocumentNames]);
 
   // ── Render ──
 
@@ -697,9 +741,14 @@ export default function ChatPage() {
                       {activeSessionDocumentSummary}
                     </Button>
                   )}
-                  <Tag color={currentProvider ? 'gold' : 'default'} className={styles.scopeTag}>
+                  <Tag color={sessionProviderMissing ? 'volcano' : currentProvider ? 'gold' : 'default'} className={styles.scopeTag}>
                     <ApiOutlined /> {currentProviderLabel}
                   </Tag>
+                  {sessionProviderMissing && (
+                    <Tag color="volcano" className={styles.scopeTag}>
+                      <ExclamationCircleOutlined /> 无法继续对话
+                    </Tag>
+                  )}
                   {currentProvider && (
                     <Tag color="purple" className={styles.scopeTag}>
                       {currentProvider.model_name}
@@ -713,7 +762,7 @@ export default function ChatPage() {
                 size="small"
                 icon={<InfoCircleOutlined />}
                 onClick={() => setProviderModalOpen(true)}
-                disabled={!currentProvider}
+                disabled={!activeSession}
               >
                 查看设置
               </Button>
@@ -748,13 +797,21 @@ export default function ChatPage() {
                           <MessageBubble msg={m} />
                           {m.role === 'assistant' && (
                             <div className={styles.msgActions}>
-                              <Tooltip title={m.id === latestAssistantMessageId ? '重新生成这条回复' : '目前只支持重新生成最后一条回复'}>
+                              <Tooltip
+                                title={
+                                  sessionProviderMissing
+                                    ? '当前会话绑定的 provider 已删除，无法重新生成'
+                                    : m.id === latestAssistantMessageId
+                                      ? '重新生成这条回复'
+                                      : '目前只支持重新生成最后一条回复'
+                                }
+                              >
                                 <Button
                                   type="text"
                                   size="small"
                                   icon={<ReloadOutlined />}
                                   onClick={() => handleRegenerate(m.id)}
-                                  disabled={isStreaming || m.id !== latestAssistantMessageId}
+                                  disabled={isStreaming || sessionProviderMissing || m.id !== latestAssistantMessageId}
                                 >
                                   重新生成
                                 </Button>
@@ -787,16 +844,16 @@ export default function ChatPage() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="输入您的问题..."
+                placeholder={sessionProviderMissing ? '当前会话绑定的 provider 已删除，请新建会话继续' : '输入您的问题...'}
                 autoSize={{ minRows: 1, maxRows: 4 }}
-                disabled={isStreaming}
+                disabled={composerDisabled}
                 className={styles.chatInput}
               />
               <Button
                 type="primary"
                 icon={<SendOutlined />}
                 onClick={handleSend}
-                disabled={!inputValue.trim() || isStreaming}
+                disabled={!inputValue.trim() || composerDisabled}
                 className={styles.sendBtn}
               />
             </div>
@@ -809,7 +866,9 @@ export default function ChatPage() {
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         onCreate={handleCreate}
+        creating={createMutation.isPending}
         providers={providers}
+        documents={allDocuments}
       />
 
       <Modal
@@ -836,6 +895,10 @@ export default function ChatPage() {
             <Descriptions.Item label="Max Tokens">{currentProvider.max_tokens}</Descriptions.Item>
             <Descriptions.Item label="超时">{currentProvider.timeout_seconds}s</Descriptions.Item>
           </Descriptions>
+        ) : sessionProviderMissing ? (
+          <div className={styles.noDocsHint}>
+            <ApiOutlined /> 这个会话绑定的 provider 已被删除。历史消息还能查看，但不能继续提问或重新生成。
+          </div>
         ) : (
           <div className={styles.noDocsHint}>
             <ApiOutlined /> 当前会话还没有可用的供应商配置

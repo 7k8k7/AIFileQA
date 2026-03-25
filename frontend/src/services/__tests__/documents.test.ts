@@ -35,6 +35,39 @@ describe('documents service', () => {
     expect(result).toEqual(payload);
   });
 
+  it('fetchAllDocuments loads every page when the document list spans multiple pages', async () => {
+    mockApi.get
+      .mockResolvedValueOnce({
+        data: {
+          items: Array.from({ length: 100 }, (_, index) => ({ id: `doc-${index + 1}`, file_name: `doc-${index + 1}.txt` })),
+          total: 120,
+          page: 1,
+          page_size: 100,
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          items: Array.from({ length: 20 }, (_, index) => ({ id: `doc-${index + 101}`, file_name: `doc-${index + 101}.txt` })),
+          total: 120,
+          page: 2,
+          page_size: 100,
+        },
+      });
+    const { fetchAllDocuments } = await import('../documents');
+
+    const result = await fetchAllDocuments();
+
+    expect(mockApi.get).toHaveBeenNthCalledWith(1, '/documents', {
+      params: { page: 1, page_size: 100 },
+    });
+    expect(mockApi.get).toHaveBeenNthCalledWith(2, '/documents', {
+      params: { page: 2, page_size: 100 },
+    });
+    expect(result).toHaveLength(120);
+    expect(result[0]).toMatchObject({ id: 'doc-1' });
+    expect(result[119]).toMatchObject({ id: 'doc-120' });
+  });
+
   it('fetchDocument reads detail endpoint', async () => {
     const payload = {
       id: 'doc-1',

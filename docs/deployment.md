@@ -29,7 +29,17 @@ cp adapter-proxy/config.example.yaml adapter-proxy/config.yaml
 docker compose up -d adapter-proxy
 ```
 
-启动后在 DocQA 设置页添加 `OpenAI 兼容` provider，Base URL 填 `http://adapter-proxy:11435`。
+说明：
+
+- `adapter-proxy/config.example.yaml` 默认按 Docker 场景填写成 `host.docker.internal`
+- 如果代理本地直接运行，可把目标模型地址改成 `localhost`
+- Linux 下如果代理容器要访问宿主机服务，请把 `docker-compose.yml` 里 `extra_hosts` 一起取消注释
+
+启动后在 DocQA 设置页添加 `OpenAI 兼容` provider：
+
+- 这里填的是 DocQA 后端访问代理的地址，不是浏览器地址
+- 如果 DocQA 后端和 `adapter-proxy` 都在同一个 Compose 网络里，Base URL 填 `http://adapter-proxy:11435`
+- 如果 DocQA 后端和 `adapter-proxy` 都是本地进程，Base URL 填 `http://localhost:11435`
 
 ### 2.2 查看状态
 
@@ -65,6 +75,12 @@ alembic upgrade head
 uvicorn app.main:app --reload --port 8000
 ```
 
+说明：
+
+- 后端环境变量现在统一使用 `DOCQA_` 前缀
+- 如果你本机、CI 或部署平台还保留旧变量名 `DEBUG`、`DATABASE_URL`、`PROVIDER_SECRET_KEY`，请改成 `DOCQA_DEBUG`、`DOCQA_DATABASE_URL`、`DOCQA_PROVIDER_SECRET_KEY`
+- 本地可直接使用 `backend/.env` 或从 `backend/.env.example` 复制生成
+
 ### 3.2 启动前端
 
 ```bash
@@ -78,13 +94,17 @@ pnpm dev
 - 前端：`http://localhost:5173`
 - 后端：`http://localhost:8000`
 
-## 4. 一键自检
+## 4. 部署自检
+
+### 4.1 宿主机有 Python 时
 
 项目根目录已提供一个部署自检脚本：
 
 ```bash
 python scripts/verify_stack.py
 ```
+
+这条命令依赖宿主机 Python 3，本身不是在容器里跑。
 
 默认检查 Docker 场景下的：
 
@@ -98,6 +118,18 @@ python scripts/verify_stack.py
 ```bash
 python scripts/verify_stack.py --frontend-url http://localhost:5173 --backend-url http://localhost:8000
 ```
+
+### 4.2 宿主机没 Python 时
+
+如果当前机器只装了 Docker，也可以直接用容器内命令完成验收：
+
+| 检查项 | 命令或动作 | 期望结果 |
+| --- | --- | --- |
+| 服务状态 | `docker compose ps` | `backend` 和 `frontend` 都是 `Up`，最好带 `healthy` |
+| 后端健康 | `docker compose exec backend python -c "import json, urllib.request; print(json.load(urllib.request.urlopen('http://127.0.0.1:8000/health')))"` | 输出里包含 `status: ok` |
+| 前端代理健康 | `docker compose exec frontend wget -qO- http://127.0.0.1/health` | 返回 `{"status":"ok","app":"DocQA"}` |
+| 前端代理 API | `docker compose exec frontend wget -qO- http://127.0.0.1/api/providers` | 返回 `[]` 或 provider 列表 JSON |
+| 前端首页 | 浏览器打开 `http://localhost:8080` | 页面能正常打开，不是空白页或 502 |
 
 ## 5. 最短手工验收路径
 

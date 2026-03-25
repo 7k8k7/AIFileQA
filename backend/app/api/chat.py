@@ -30,13 +30,14 @@ from app.services.chat_service import (
     save_assistant_message,
     update_assistant_message,
 )
-from app.services.llm_service import get_default_provider, stream_chat_completion
+from app.services.llm_service import stream_chat_completion
 from app.services.provider_service import get_provider
 from app.services.retrieval_service import build_rag_prompt
 from app.core.observability import clip_text, summarize_chunks, summarize_provider
 
 router = APIRouter(tags=["chat"])
 REGENERATE_FEEDBACK = "用户对你刚刚的回答不满意。请重新回答同一个问题，明确修正问题，不要只是换个说法重复原答案。"
+MISSING_SESSION_PROVIDER_DETAIL = "当前会话绑定的供应商已被删除，历史消息仍可查看，但不能继续提问或重新生成，请新建会话"
 logger = logging.getLogger(__name__)
 
 
@@ -119,14 +120,7 @@ async def send_message(
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    # Get default provider
-    provider = None
-    if session.provider_id:
-        provider = await get_provider(db, session.provider_id)
-    if not provider:
-        provider = await get_default_provider(db)
-    if not provider:
-        raise HTTPException(status_code=400, detail="请先在设置中配置模型供应商")
+    provider = await _get_session_provider_or_raise(db, session)
     logger.info(
         "Chat send started: session_id=%s scope=%s provider=%s question=%s",
         session_id,
@@ -273,13 +267,7 @@ async def regenerate_message(
     user_message = messages[assistant_index - 1]
     prior = messages[: assistant_index - 1]
 
-    provider = None
-    if session.provider_id:
-        provider = await get_provider(db, session.provider_id)
-    if not provider:
-        provider = await get_default_provider(db)
-    if not provider:
-        raise HTTPException(status_code=400, detail="请先在设置中配置模型供应商")
+    provider = await _get_session_provider_or_raise(db, session)
     logger.info(
         "Chat regenerate started: session_id=%s message_id=%s provider=%s feedback=%s",
         session_id,
@@ -390,3 +378,14 @@ async def regenerate_message(
             "X-Regenerated-Message-Id": message_id,
         },
     )
+
+
+async def _get_session_provider_or_raise(db: AsyncSession, session):
+    if not session.provider_id:
+        raise HTTPException(status_code=400, detail=MISSING_SESSION_PROVIDER_DETAIL)
+
+    provider = await get_provider(db, session.provider_id)
+    if not provider:
+        raise HTTPException(status_code=400, detail=MISSING_SESSION_PROVIDER_DETAIL)
+
+    return provider

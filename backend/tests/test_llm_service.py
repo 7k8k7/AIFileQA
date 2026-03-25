@@ -138,6 +138,218 @@ async def test_openai_no_system_prompt():
 
 
 @pytest.mark.asyncio
+async def test_openai_uses_max_completion_tokens():
+    provider = _make_provider(provider_type="openai", max_tokens=2048)
+
+    captured_payload = {}
+
+    async def fake_stream_openai(url, headers, payload, timeout):
+        captured_payload.update(payload)
+        yield 'data: {"type": "token", "content": "ok"}\n\n'
+
+    with patch.object(llm_service, "_stream_openai", fake_stream_openai):
+        async for _ in llm_service.stream_chat_completion(provider, [], "hello"):
+            pass
+
+    assert captured_payload["max_completion_tokens"] == 2048
+    assert "max_tokens" not in captured_payload
+
+
+@pytest.mark.asyncio
+async def test_openai_compatible_keeps_max_tokens():
+    provider = _make_provider(
+        provider_type="openai_compatible",
+        base_url="http://localhost:11434",
+        api_key="",
+        max_tokens=1024,
+    )
+
+    captured_payload = {}
+
+    async def fake_stream_openai(url, headers, payload, timeout):
+        captured_payload.update(payload)
+        yield 'data: {"type": "token", "content": "ok"}\n\n'
+
+    with patch.object(llm_service, "_stream_openai", fake_stream_openai):
+        async for _ in llm_service.stream_chat_completion(provider, [], "hello"):
+            pass
+
+    assert captured_payload["max_tokens"] == 1024
+    assert "max_completion_tokens" not in captured_payload
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_retries_with_suggested_token_parameter():
+    request_payloads = []
+
+    async def success_lines():
+        yield 'data: {"choices":[{"delta":{"content":"ok"}}]}'
+        yield "data: [DONE]"
+
+    class _FakeResponse:
+        def __init__(self, status_code, headers=None, body=b"", line_factory=None):
+            self.status_code = status_code
+            self.headers = headers or {}
+            self._body = body
+            self._line_factory = line_factory
+            self.text = body.decode("utf-8", errors="replace")
+
+        async def aread(self):
+            return self._body
+
+        def aiter_lines(self):
+            if self._line_factory is None:
+                async def _empty():
+                    if False:
+                        yield ""
+                return _empty()
+            return self._line_factory()
+
+    class _FakeStreamContext:
+        def __init__(self, response):
+            self._response = response
+
+        async def __aenter__(self):
+            return self._response
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            self.calls = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def stream(self, method, url, headers=None, json=None):
+            request_payloads.append(json)
+            self.calls += 1
+            if self.calls == 1:
+                return _FakeStreamContext(
+                    _FakeResponse(
+                        400,
+                        headers={"x-request-id": "req_retry_tokens"},
+                        body=(
+                            b'{"error":{"message":"Unsupported parameter: \'max_tokens\' is not supported with this model. '
+                            b'Use \'max_completion_tokens\' instead.","param":"max_tokens","type":"invalid_request_error"}}'
+                        ),
+                    )
+                )
+            return _FakeStreamContext(_FakeResponse(200, line_factory=success_lines))
+
+    with patch("app.services.llm_service.httpx.AsyncClient", return_value=_FakeAsyncClient()):
+        tokens = []
+        async for line in llm_service._stream_openai(
+            "http://test",
+            {},
+            {
+                "model": "gpt-5.4",
+                "max_tokens": 256,
+                "temperature": 0.7,
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            30,
+        ):
+            obj = json.loads(line.split("data: ")[1].strip())
+            tokens.append(obj["content"])
+
+    assert tokens == ["ok"]
+    assert request_payloads[0]["max_tokens"] == 256
+    assert "max_completion_tokens" not in request_payloads[0]
+    assert request_payloads[1]["max_completion_tokens"] == 256
+    assert "max_tokens" not in request_payloads[1]
+
+
+@pytest.mark.asyncio
+async def test_anthropic_stream_retries_without_temperature():
+    request_payloads = []
+
+    async def success_lines():
+        yield 'data: {"type":"content_block_delta","delta":{"text":"ok"}}'
+        yield 'data: {"type":"message_stop"}'
+
+    class _FakeResponse:
+        def __init__(self, status_code, headers=None, body=b"", line_factory=None):
+            self.status_code = status_code
+            self.headers = headers or {}
+            self._body = body
+            self._line_factory = line_factory
+            self.text = body.decode("utf-8", errors="replace")
+
+        async def aread(self):
+            return self._body
+
+        def aiter_lines(self):
+            if self._line_factory is None:
+                async def _empty():
+                    if False:
+                        yield ""
+                return _empty()
+            return self._line_factory()
+
+    class _FakeStreamContext:
+        def __init__(self, response):
+            self._response = response
+
+        async def __aenter__(self):
+            return self._response
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            self.calls = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def stream(self, method, url, headers=None, json=None):
+            request_payloads.append(json)
+            self.calls += 1
+            if self.calls == 1:
+                return _FakeStreamContext(
+                    _FakeResponse(
+                        400,
+                        headers={"x-request-id": "req_retry_anthropic"},
+                        body=(
+                            b'{"error":{"message":"Unsupported parameter: temperature","param":"temperature","type":"invalid_request_error"}}'
+                        ),
+                    )
+                )
+            return _FakeStreamContext(_FakeResponse(200, line_factory=success_lines))
+
+    with patch("app.services.llm_service.httpx.AsyncClient", return_value=_FakeAsyncClient()):
+        tokens = []
+        async for line in llm_service._stream_anthropic(
+            "http://test",
+            {},
+            {
+                "model": "claude-sonnet",
+                "max_tokens": 256,
+                "temperature": 0.7,
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            30,
+        ):
+            obj = json.loads(line.split("data: ")[1].strip())
+            tokens.append(obj["content"])
+
+    assert tokens == ["ok"]
+    assert request_payloads[0]["temperature"] == 0.7
+    assert "temperature" not in request_payloads[1]
+
+
+@pytest.mark.asyncio
 async def test_history_formatting():
     """Message history preserves role and content order."""
     provider = _make_provider(provider_type="openai")
@@ -246,6 +458,8 @@ async def test_openai_stream_yields_tokens():
         yield "data: [DONE]"
 
     mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {}
     mock_resp.raise_for_status = MagicMock()
     mock_resp.aiter_lines = mock_lines
 
@@ -276,6 +490,8 @@ async def test_anthropic_stream_yields_tokens():
         yield 'data: {"type":"message_stop"}'
 
     mock_resp = AsyncMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {}
     mock_resp.raise_for_status = MagicMock()
     mock_resp.aiter_lines = mock_lines
 
@@ -295,3 +511,28 @@ async def test_anthropic_stream_yields_tokens():
             tokens.append(obj["content"])
 
     assert tokens == ["你好", "世界"]
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_http_error_includes_body_and_request_id():
+    mock_resp = AsyncMock()
+    mock_resp.status_code = 400
+    mock_resp.headers = {"x-request-id": "req_chat_456"}
+    mock_resp.aread = AsyncMock(return_value=b'{"error":{"message":"Unsupported parameter: temperature"}}')
+
+    mock_context = AsyncMock()
+    mock_context.__aenter__ = AsyncMock(return_value=mock_resp)
+    mock_context.__aexit__ = AsyncMock(return_value=False)
+
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock(return_value=mock_context)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("app.services.llm_service.httpx.AsyncClient", return_value=mock_client):
+        with pytest.raises(RuntimeError) as exc_info:
+            async for _ in llm_service._stream_openai("http://test", {}, {}, 30):
+                pass
+
+    assert "Unsupported parameter: temperature" in str(exc_info.value)
+    assert "x-request-id: req_chat_456" in str(exc_info.value)

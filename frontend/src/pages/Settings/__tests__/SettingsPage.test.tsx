@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { App } from 'antd';
+import { App, Modal } from 'antd';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProviderConfig, ProviderTestResult } from '../../../types';
 import SettingsPage from '../index';
@@ -134,7 +134,22 @@ describe('SettingsPage', () => {
       expect(screen.getByDisplayValue('https://api.anthropic.com')).toBeInTheDocument();
     });
 
+    expect(screen.getByDisplayValue('claude-sonnet')).toBeInTheDocument();
     expect(screen.getByRole('switch')).toBeDisabled();
+  });
+
+  it('switches provider defaults when the provider type changes to openai compatible', async () => {
+    render(<SettingsPage />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: /添加供应商/ })[0]);
+
+    const providerTypeSelect = screen.getAllByRole('combobox')[0];
+    fireEvent.mouseDown(providerTypeSelect);
+    fireEvent.click(await screen.findByText('OpenAI 兼容'));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('local-model')).toBeInTheDocument();
+    });
   });
 
   it('opens the edit form for an existing provider card', async () => {
@@ -202,6 +217,28 @@ describe('SettingsPage', () => {
         type: 'success',
         content: '连接成功，已更新验证状态',
         duration: 2,
+      }),
+    );
+  });
+
+  it('warns about historical sessions before deleting a provider', async () => {
+    const deletableProvider = {
+      ...provider,
+      id: 'provider-2',
+      is_default: false,
+    };
+    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation(() => ({ destroy: vi.fn(), update: vi.fn() }) as any);
+
+    useProvidersMock.mockReturnValue({ data: [deletableProvider], isLoading: false });
+
+    render(<SettingsPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'delete' }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '删除供应商',
+        content: expect.stringContaining('历史会话还能查看记录，但不能继续发送消息或重新生成回复'),
       }),
     );
   });

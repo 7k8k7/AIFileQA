@@ -111,10 +111,11 @@ interface ProviderFormValues {
   timeout_seconds: number;
 }
 
-function getProviderDefaults(providerType: ProviderType): Pick<ProviderFormValues, 'base_url' | 'enable_embedding' | 'embedding_model'> {
+function getProviderDefaults(providerType: ProviderType): Pick<ProviderFormValues, 'base_url' | 'model_name' | 'enable_embedding' | 'embedding_model'> {
   if (providerType === 'openai') {
     return {
       base_url: 'https://api.openai.com',
+      model_name: 'gpt-4o',
       enable_embedding: true,
       embedding_model: 'text-embedding-3-small',
     };
@@ -122,12 +123,14 @@ function getProviderDefaults(providerType: ProviderType): Pick<ProviderFormValue
   if (providerType === 'claude') {
     return {
       base_url: 'https://api.anthropic.com',
+      model_name: 'claude-sonnet',
       enable_embedding: false,
       embedding_model: '',
     };
   }
   return {
     base_url: '',
+    model_name: 'local-model',
     enable_embedding: false,
     embedding_model: '',
   };
@@ -136,7 +139,7 @@ function getProviderDefaults(providerType: ProviderType): Pick<ProviderFormValue
 const DEFAULT_PROVIDER_VALUES: ProviderFormValues = {
   provider_type: 'openai',
   base_url: getProviderDefaults('openai').base_url,
-  model_name: 'gpt-4o',
+  model_name: getProviderDefaults('openai').model_name,
   api_key: '',
   embedding_model: getProviderDefaults('openai').embedding_model,
   enable_embedding: getProviderDefaults('openai').enable_embedding,
@@ -160,6 +163,7 @@ function ProviderForm({
   const providerType = Form.useWatch('provider_type', form) ?? initial?.provider_type ?? 'openai';
   const enableEmbedding = Form.useWatch('enable_embedding', form) ?? initial?.enable_embedding ?? false;
   const capabilityCopy = getProviderCapabilityCopy(providerType, enableEmbedding);
+  const providerDefaults = getProviderDefaults(providerType);
 
   useEffect(() => {
     form.resetFields();
@@ -204,6 +208,7 @@ function ProviderForm({
                 const defaults = getProviderDefaults(val);
                 form.setFieldsValue({
                   base_url: defaults.base_url,
+                  model_name: defaults.model_name,
                   enable_embedding: defaults.enable_embedding,
                   embedding_model: defaults.embedding_model,
                 });
@@ -217,7 +222,7 @@ function ProviderForm({
             rules={[{ required: true, message: '请输入模型名称' }]}
             extra="这里配置当前 provider 用于聊天生成的模型。"
           >
-            <Input placeholder="gpt-4o" />
+            <Input placeholder={providerDefaults.model_name} />
           </Form.Item>
         </div>
 
@@ -639,7 +644,7 @@ export default function SettingsPage() {
       Modal.confirm({
         title: '删除供应商',
         icon: <ExclamationCircleOutlined />,
-        content: `确定要删除「${PROVIDER_TYPES.find((t) => t.value === provider.provider_type)?.label}」配置吗？`,
+        content: `确定要删除「${PROVIDER_TYPES.find((t) => t.value === provider.provider_type)?.label}」配置吗？删除后，引用它的历史会话还能查看记录，但不能继续发送消息或重新生成回复。`,
         okText: '删除',
         okType: 'danger',
         cancelText: '取消',

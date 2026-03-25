@@ -9,6 +9,7 @@ class Settings(BaseSettings):
         env_file=str(BASE_DIR / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        env_prefix="DOCQA_",
     )
 
     # App

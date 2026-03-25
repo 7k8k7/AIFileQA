@@ -11,7 +11,7 @@ const {
   useDeleteSessionMock,
   useMessagesMock,
   useInvalidateMessagesMock,
-  useDocumentsMock,
+  useAllDocumentsMock,
   useProvidersMock,
   useChatStoreMock,
   sendMessageMock,
@@ -23,7 +23,7 @@ const {
   useDeleteSessionMock: vi.fn(),
   useMessagesMock: vi.fn(),
   useInvalidateMessagesMock: vi.fn(),
-  useDocumentsMock: vi.fn(),
+  useAllDocumentsMock: vi.fn(),
   useProvidersMock: vi.fn(),
   useChatStoreMock: vi.fn(),
   sendMessageMock: vi.fn(),
@@ -37,7 +37,7 @@ vi.mock('../../../hooks', () => ({
   useDeleteSession: useDeleteSessionMock,
   useMessages: useMessagesMock,
   useInvalidateMessages: useInvalidateMessagesMock,
-  useDocuments: useDocumentsMock,
+  useAllDocuments: useAllDocumentsMock,
   useProviders: useProvidersMock,
 }));
 
@@ -147,9 +147,7 @@ describe('ChatPage', () => {
 
     useSessionsMock.mockReturnValue({ data: sessions, isLoading: false });
     useMessagesMock.mockReturnValue({ data: [], isLoading: false });
-    useDocumentsMock.mockReturnValue({
-      data: { items: documents, total: documents.length, page: 1, page_size: 20 },
-    });
+    useAllDocumentsMock.mockReturnValue({ data: documents });
     useProvidersMock.mockReturnValue({ data: [provider] });
     useCreateSessionMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
     useRenameSessionMock.mockReturnValue({ mutate: vi.fn(), isPending: false });
@@ -239,6 +237,69 @@ describe('ChatPage', () => {
     expect(screen.getByText('FAQ.md')).toBeInTheDocument();
   });
 
+  it('keeps document names visible for sessions bound to documents beyond the first page', async () => {
+    const extraDocuments = Array.from({ length: 23 }, (_, index) => ({
+      id: `doc-extra-${index + 1}`,
+      file_name: `扩展文档-${index + 1}.txt`,
+      file_ext: '.txt',
+      file_size: 512,
+      status: '可用' as const,
+      uploaded_at: '2026-03-25T11:00:00Z',
+      updated_at: '2026-03-25T11:00:00Z',
+    }));
+    const targetDocument = extraDocuments[20];
+    const store = buildChatStore({ activeSessionId: 'session-extra' });
+    const extraSession: ChatSession = {
+      id: 'session-extra',
+      title: '跨页文档会话',
+      scope_type: 'single',
+      provider_id: provider.id,
+      document_id: targetDocument.id,
+      document_ids: [targetDocument.id],
+      created_at: '2026-03-25T11:00:00Z',
+      updated_at: '2026-03-25T11:05:00Z',
+    };
+
+    useChatStoreMock.mockReturnValue(store);
+    useSessionsMock.mockReturnValue({ data: [extraSession], isLoading: false });
+    useAllDocumentsMock.mockReturnValue({ data: [...documents, ...extraDocuments] });
+
+    render(<ChatPage />);
+
+    expect(screen.getByRole('button', { name: /扩展文档-21\.txt/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /扩展文档-21\.txt/ }));
+
+    expect(await screen.findByText('当前会话文档范围')).toBeInTheDocument();
+    expect(screen.getAllByText('扩展文档-21.txt')).toHaveLength(2);
+  });
+
+  it('only shows verified providers when creating a session', async () => {
+    const unverifiedProvider: ProviderConfig = {
+      ...provider,
+      id: 'provider-2',
+      model_name: 'broken-provider',
+      is_default: false,
+      last_test_success: false,
+      last_test_message: '连接失败',
+    };
+
+    useSessionsMock.mockReturnValue({ data: [], isLoading: false });
+    useChatStoreMock.mockReturnValue(buildChatStore({ activeSessionId: undefined }));
+    useProvidersMock.mockReturnValue({ data: [provider, unverifiedProvider] });
+
+    render(<ChatPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: /新建会话/ }));
+
+    expect(await screen.findByText('已隐藏 1 个未通过连接测试的供应商')).toBeInTheDocument();
+
+    const providerSelect = screen.getByRole('combobox');
+    fireEvent.mouseDown(providerSelect);
+
+    expect((await screen.findAllByText(/OpenAI · gpt-4o/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/broken-provider/)).not.toBeInTheDocument();
+  });
+
   it('only enables regenerate on the latest assistant message and calls the regenerate service', async () => {
     const abort = vi.fn();
     const store = buildChatStore();
@@ -294,5 +355,29 @@ describe('ChatPage', () => {
     expect(store.startStreaming).toHaveBeenCalledWith(abort, {
       regeneratingMessageId: 'msg-3',
     });
+  });
+
+  it('shows deleted-provider warning and disables continuing the session', async () => {
+    const store = buildChatStore();
+    const messages: ChatMessage[] = [
+      {
+        id: 'msg-1',
+        session_id: sessions[0].id,
+        role: 'assistant',
+        content: '历史回答',
+        created_at: '2026-03-25T10:00:02Z',
+      },
+    ];
+
+    useChatStoreMock.mockReturnValue(store);
+    useMessagesMock.mockReturnValue({ data: messages, isLoading: false });
+    useProvidersMock.mockReturnValue({ data: [] });
+
+    render(<ChatPage />);
+
+    expect(screen.getByText('供应商已删除')).toBeInTheDocument();
+    expect(screen.getByText('这个会话绑定的 provider 已被删除。历史消息还能查看，但不能继续提问或重新生成。')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('当前会话绑定的 provider 已删除，请新建会话继续')).toBeDisabled();
+    expect(screen.getByRole('button', { name: /重新生成/ })).toBeDisabled();
   });
 });

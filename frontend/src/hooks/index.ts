@@ -1,4 +1,4 @@
-export { useDocuments, useDocumentsWithPolling, useUploadDocument, useDeleteDocument } from './useDocuments';
+export { useDocuments, useAllDocuments, useDocumentsWithPolling, useUploadDocument, useDeleteDocument } from './useDocuments';
 export { useSessions, useCreateSession, useRenameSession, useDeleteSession, useMessages, useInvalidateMessages } from './useSessions';
 export {
   useProviders,

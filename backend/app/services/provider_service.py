@@ -16,13 +16,38 @@ from app.schemas.provider import (
     mask_api_key,
     validate_provider_values,
 )
+from app.services.provider_payloads import (
+    adapt_payload_for_unsupported_parameter,
+    build_completion_limit_payload,
+)
 from app.services.provider_url import build_provider_url, normalize_provider_base_url
 
 logger = logging.getLogger(__name__)
 
+CONNECTIVITY_TEST_MAX_TOKENS = 32
+CONNECTIVITY_TEST_MESSAGE = 'Reply with exactly "ok".'
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _format_http_error_message(
+    *,
+    status_code: int,
+    body: str | None,
+    request_id: str | None,
+) -> str:
+    message = f"HTTP {status_code}"
+    normalized_body = (body or "").strip()
+    if normalized_body:
+        clipped_body = normalized_body[:500]
+        if len(normalized_body) > 500:
+            clipped_body = clipped_body.rstrip() + "..."
+        message += f": {clipped_body}"
+    if request_id:
+        message += f" (x-request-id: {request_id})"
+    return message
 
 
 def to_provider_out(provider: ProviderConfig) -> ProviderOut:
@@ -158,7 +183,7 @@ async def delete_provider(db: AsyncSession, provider_id: str) -> bool:
 
 
 async def test_connection(db: AsyncSession, provider_id: str) -> dict:
-    """Send a lightweight request to the provider to verify connectivity."""
+    """Send a lightweight model-specific request to verify connectivity."""
     provider = await get_provider(db, provider_id)
     if not provider:
         return {"success": False, "message": "供应商不存在"}
@@ -172,7 +197,7 @@ async def test_connection(db: AsyncSession, provider_id: str) -> dict:
         if provider.api_key:
             headers["x-api-key"] = provider.api_key
     else:
-        url = build_provider_url(url, "/v1/models")
+        url = build_provider_url(url, "/v1/chat/completions")
         if provider.api_key:
             headers["Authorization"] = f"Bearer {provider.api_key}"
 
@@ -187,12 +212,41 @@ async def test_connection(db: AsyncSession, provider_id: str) -> dict:
                     json={
                         "model": provider.model_name,
                         "max_tokens": 1,
-                        "messages": [{"role": "user", "content": "hi"}],
+                        "messages": [{"role": "user", "content": CONNECTIVITY_TEST_MESSAGE}],
                     },
                 )
             else:
-                # OpenAI-compatible: list models
-                resp = await client.get(url, headers=headers)
+                # OpenAI-compatible: minimal chat completion using selected model
+                payload = {
+                    "model": provider.model_name,
+                    **build_completion_limit_payload(
+                        provider.provider_type,
+                        CONNECTIVITY_TEST_MAX_TOKENS,
+                    ),
+                    "temperature": provider.temperature,
+                    "stream": False,
+                    "messages": [{"role": "user", "content": CONNECTIVITY_TEST_MESSAGE}],
+                }
+                for _ in range(3):
+                    resp = await client.post(
+                        url,
+                        headers=headers,
+                        json=payload,
+                    )
+                    if resp.status_code < 400:
+                        break
+                    next_payload, adaptation = adapt_payload_for_unsupported_parameter(
+                        payload,
+                        resp.text,
+                    )
+                    if next_payload is None:
+                        break
+                    logger.info(
+                        "Retrying provider connectivity test with adapted payload: %s %s",
+                        summarize_provider(provider),
+                        adaptation,
+                    )
+                    payload = next_payload
 
             if resp.status_code < 400:
                 provider.last_test_success = True
@@ -207,23 +261,28 @@ async def test_connection(db: AsyncSession, provider_id: str) -> dict:
                     "provider": to_provider_out(provider),
                 }
             else:
-                body = resp.text[:200]
+                message = _format_http_error_message(
+                    status_code=resp.status_code,
+                    body=resp.text,
+                    request_id=resp.headers.get("x-request-id"),
+                )
                 provider.last_test_success = False
-                provider.last_test_message = f"HTTP {resp.status_code}: {body}"
+                provider.last_test_message = message
                 provider.last_test_at = _utcnow()
                 if provider.is_default:
                     provider.is_default = False
                 await db.flush()
                 await db.refresh(provider)
                 logger.warning(
-                    "Provider connectivity test failed: %s status=%s body=%s",
+                    "Provider connectivity test failed: %s status=%s body=%s request_id=%s",
                     summarize_provider(provider),
                     resp.status_code,
-                    body,
+                    resp.text[:300],
+                    resp.headers.get("x-request-id"),
                 )
                 return {
                     "success": False,
-                    "message": f"HTTP {resp.status_code}: {body}",
+                    "message": message,
                     "provider": to_provider_out(provider),
                 }
     except httpx.TimeoutException:
